@@ -12,6 +12,7 @@ import { Panel, SectionTitle } from "../../components/ui/Sheet";
 import { confirmLocation } from "../../components/LocateExplainer";
 import { useMapStore } from "../map/mapStore";
 import { routeHref } from "../route/RoutePage";
+import { CandidatePrompt } from "./CandidatePrompt";
 
 export default function HomePage() {
   const t = useT();
@@ -58,7 +59,7 @@ export default function HomePage() {
   return (
     <>
       {/* Top: search pill + vehicle, then recent chips (SPEC §10.2.1). */}
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-10 flex flex-col gap-2 p-3 pt-[max(12px,env(safe-area-inset-top))] lg:left-[400px] lg:max-w-lg">
+      <div className="pointer-events-none fixed inset-x-0 top-0 z-10 flex flex-col gap-2 p-3 pt-[max(32px,calc(env(safe-area-inset-top)+24px))] lg:left-[400px] lg:max-w-lg">
         <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-surface p-1 pl-4 shadow-float">
           <Search size={18} strokeWidth={1.75} className="text-ink-3" aria-hidden />
           <button type="button" className="h-12 flex-1 text-left text-base text-ink-2" onClick={() => navigate("/search")} data-testid="where-to">
@@ -108,6 +109,7 @@ export default function HomePage() {
             </IconButton>
           </div>
         </div>
+        <CandidatePrompt center={center} />
         <SectionTitle>{t("home.top_destinations")}</SectionTitle>
         {dests.isPending && region?.seeded ? (
           <div className="flex flex-col gap-2 px-4">

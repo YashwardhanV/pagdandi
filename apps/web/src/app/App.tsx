@@ -42,7 +42,7 @@ function OfflineBanner() {
   const online = useOnline();
   if (online) return null;
   return (
-    <div role="status" className="fixed inset-x-3 top-[max(76px,calc(env(safe-area-inset-top)+64px))] z-30 flex items-center gap-2 rounded-md bg-ink px-3 py-2 text-sm text-bg shadow-float lg:left-[412px] lg:max-w-md" data-testid="offline-banner">
+    <div role="status" className="fixed inset-x-3 top-[max(96px,calc(env(safe-area-inset-top)+88px))] z-30 flex items-center gap-2 rounded-md bg-ink px-3 py-2 text-sm text-bg shadow-float lg:left-[412px] lg:max-w-md" data-testid="offline-banner">
       <WifiOff size={16} strokeWidth={1.75} aria-hidden />
       {t("common.offline")}
     </div>

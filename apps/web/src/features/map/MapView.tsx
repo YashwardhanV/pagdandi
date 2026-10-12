@@ -66,6 +66,8 @@ export default function MapView() {
   const { highlight, draft, onClick, fit, follow, set: setMap } = useMapStore();
 
   const [view, setView] = useState<{ bbox: [number, number, number, number]; zoom: number } | null>(null);
+  // The map mounts after its style loads; fits requested before then run on load.
+  const [mapReady, setMapReady] = useState(false);
 
   // Draw-on animation: 300 ms, once per route load (SPEC §11.5).
   const [progress, setProgress] = useState(1);
@@ -95,7 +97,7 @@ export default function MapView() {
 
   // Fit the map to a new route, leaving room for the sheet or side panel.
   useEffect(() => {
-    if (!route || !ref.current) return;
+    if (!route || !mapReady || !ref.current) return;
     const pts = route.options.flatMap((o) => {
       try {
         return decodePolyline(o.polyline);
@@ -106,14 +108,14 @@ export default function MapView() {
     if (pts.length < 2) return;
     const padding = desktop ? { top: 64, bottom: 64, left: 440, right: 64 } : { top: 120, bottom: window.innerHeight * 0.55, left: 32, right: 32 };
     ref.current.fitBounds(bounds(pts), { padding, duration: prefersReducedMotion() ? 0 : 600 });
-  }, [route, desktop]);
+  }, [route, desktop, mapReady]);
 
   useEffect(() => {
-    if (!fit || !ref.current) return;
+    if (!fit || !mapReady || !ref.current) return;
     const p = fit.padding ?? 60;
     const padding = desktop ? { top: p, bottom: p, left: 400 + p, right: p } : { top: p + 60, bottom: window.innerHeight * 0.5, left: p, right: p };
     ref.current.fitBounds(fit.bounds, { padding, duration: prefersReducedMotion() ? 0 : 500, maxZoom: 17 });
-  }, [fit, desktop]);
+  }, [fit, desktop, mapReady]);
 
   useEffect(() => {
     if (follow && userPos && ref.current) {
@@ -193,8 +195,12 @@ export default function MapView() {
       attributionControl={false}
       dragRotate={false}
       maxPitch={0}
+      // Phones above 2× gain little sharpness but pay for every pixel each frame.
+      pixelRatio={Math.min(window.devicePixelRatio || 1, 2)}
+      fadeDuration={0}
       onLoad={(e) => {
         setMap({ map: e.target });
+        setMapReady(true);
         updateView();
       }}
       onMoveEnd={updateView}
@@ -208,7 +214,7 @@ export default function MapView() {
       }}
       cursor={onClick ? "crosshair" : undefined}
     >
-      <AttributionControl compact={false} position={desktop ? "bottom-right" : "top-right"} customAttribution="© OpenStreetMap contributors" />
+      <AttributionControl compact={false} position={desktop ? "bottom-right" : "top-right"} />
 
       <Source id="shortcuts" type="geojson" data={shortcutData}>
         <Layer id="shortcuts-casing" type="line" minzoom={11} layout={{ "line-cap": "round", "line-join": "round" }} paint={{ "line-color": colors.casing, "line-width": 6 }} />

@@ -10,6 +10,7 @@ import (
 
 	"pagdandi/api/internal/geo"
 	"pagdandi/api/internal/jobs"
+	"pagdandi/api/internal/routing"
 	"pagdandi/api/internal/store"
 )
 
@@ -104,6 +105,7 @@ func cmdSeedDev(ctx context.Context, o *opts) error {
 			nil, []string{"passable", "blocked", "passable"}},
 	}
 	j := &jobs.Jobs{DB: db, Regions: o.regions, Log: o.log}
+	gh := routing.NewGH(envOr("GH_IN_URL", "http://localhost:8989"))
 	now := time.Now()
 	for _, d := range demos {
 		a, err := snapDemo(ctx, db, d.a)
@@ -116,8 +118,15 @@ func cmdSeedDev(ctx context.Context, o *opts) error {
 			o.log.Warn("demo shortcut skipped", "title", d.title, "err", err)
 			continue
 		}
-		mid := geo.Point{Lat: (a.p.Lat+b.p.Lat)/2 + 0.0008, Lng: (a.p.Lng+b.p.Lng)/2 - 0.0006}
-		line := []geo.Point{a.p, mid, b.p}
+		// Follow real ground (GraphHopper's adventure profile) so demo paths
+		// never cut across lakes; fall back to a straight segment.
+		line := []geo.Point{a.p, b.p}
+		if res, err := gh.Route(ctx, routing.RouteRequest{Points: [][2]float64{{a.p.Lng, a.p.Lat}, {b.p.Lng, b.p.Lat}}, Profile: "tw_adventure"}); err == nil {
+			if l, err := res.Paths[0].Line(); err == nil && len(l) >= 2 {
+				l[0], l[len(l)-1] = a.p, b.p
+				line = geo.Simplify(l, 3)
+			}
+		}
 		title := d.title
 		flags := d.flags
 		if flags == nil {

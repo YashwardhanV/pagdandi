@@ -201,7 +201,10 @@ func cmdCoverage(ctx context.Context, o *opts) error {
 		}
 		path := filepath.Join(o.build, "coverage_"+strings.ToLower(country)+".geojson")
 		if len(gs) == 0 {
-			_ = os.Remove(path)
+			// A single-region build leaves the other country's data alone.
+			if o.region == "" {
+				_ = os.Remove(path)
+			}
 			continue
 		}
 		u, err := unionGeoJSON(ctx, db, gs)

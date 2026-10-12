@@ -174,7 +174,7 @@ export default function NavScreen() {
 
   return (
     <>
-      <div className="fixed inset-x-0 top-0 z-20 p-3 pt-[max(12px,env(safe-area-inset-top))] lg:left-[400px] lg:max-w-xl" aria-live="polite">
+      <div className="fixed inset-x-0 top-0 z-20 p-3 pt-[max(32px,calc(env(safe-area-inset-top)+24px))] lg:left-[400px] lg:max-w-xl" aria-live="polite">
         <div className="flex items-center gap-4 rounded-lg bg-ink p-4 text-bg shadow-float" data-testid="maneuver">
           {man && <ManeuverIcon sign={man.instruction.sign} {...BIG} />}
           <div className="min-w-0 flex-1">
