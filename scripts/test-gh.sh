@@ -5,6 +5,7 @@ set -euo pipefail
 . "$(dirname "$0")/env.sh"
 TEST_DB="${TEST_DATABASE_URL:-postgres://pagdandi:pagdandi@localhost:5432/pagdandi_test?sslmode=disable}"
 mkdir -p "$ROOT/data/build/logs"
+"$OSM_PY" "$ROOT/infra/tools/test_osm_overrides.py"
 cd "$ROOT/services/api"
 DATABASE_URL="$TEST_DB" GH_JAVA_XMX=512m go run ./cmd/datactl fixture
 java -Xmx256m -jar "$GH_JAR" server "$ROOT/data/build/fixture/gh/in/config.yml" >"$ROOT/data/build/logs/gh-fixture.log" 2>&1 &
