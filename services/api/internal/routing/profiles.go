@@ -99,14 +99,14 @@ func CommunitySpeedKmh(vehicle, surface string) float64 {
 		default:
 			return 12
 		}
-	default: // scooter / motorcycle
+	default: // scooter / motorcycle; SPEC §1.2 has 3.4 km of kaccha in 9–11 min (~20 km/h)
 		switch surface {
 		case "paved":
-			return 20
+			return 25
 		case "unpaved":
-			return 15
+			return 20
 		default:
-			return 12
+			return 15
 		}
 	}
 }

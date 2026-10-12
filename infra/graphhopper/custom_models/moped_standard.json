@@ -11,6 +11,8 @@
   "speed": [
     { "if": "true", "limit_to": "car_average_speed" },
     { "if": "true", "limit_to": "45" },
+    { "if": "urban_density == CITY", "limit_to": "30" },
+    { "else_if": "urban_density == RESIDENTIAL", "limit_to": "40" },
     { "if": "road_class == RESIDENTIAL || road_class == LIVING_STREET", "limit_to": "20" }
   ]
 }

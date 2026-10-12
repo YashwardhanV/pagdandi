@@ -28,7 +28,9 @@ graphhopper:
   prepare.lm.landmarks: 16
   prepare.lm.threads: 2
 
-  graph.encoded_values: car_access, car_average_speed, road_access, road_class, road_class_link, road_environment, roundabout, surface, smoothness, track_type, max_speed, osm_way_id
+  graph.encoded_values: urban_density, car_access, car_average_speed, road_access, road_class, road_class_link, road_environment, roundabout, surface, smoothness, track_type, max_speed, osm_way_id
+  # Urban density lets city roads run at realistic two-wheeler speeds (docs/DECISIONS.md).
+  graph.urban_density.threads: 2
   prepare.min_network_size: {{MIN_NETWORK_SIZE}}
   prepare.subnetworks.threads: 2
   routing.snap_preventions_default: tunnel, bridge, ferry

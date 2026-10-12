@@ -7,7 +7,7 @@ import react from "@vitejs/plugin-react";
 import tailwind from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
-const tilesDir = resolve(__dirname, "../../data/build/tiles");
+const tilesDir = resolve(import.meta.dirname, "../../data/build/tiles");
 
 // Serves data/build/tiles at /tiles with HTTP range requests in dev, like Caddy does in prod.
 function devTiles(): Plugin {
@@ -73,6 +73,12 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         runtimeCaching: [
           {
+            // Offline packs: served from the cache with HTTP range support (PMTiles reads by range).
+            urlPattern: ({ url }) => url.pathname.startsWith("/tiles/packs/"),
+            handler: "CacheOnly",
+            options: { cacheName: "pd-offline-packs", rangeRequests: true },
+          },
+          {
             // Map fonts and sprites for the basemap.
             urlPattern: /^https:\/\/protomaps\.github\.io\/basemaps-assets\//,
             handler: "CacheFirst",
@@ -99,6 +105,8 @@ export default defineConfig({
   },
   build: {
     target: "es2022",
+    // MapLibre is one ~1 MB lazy chunk by nature; the initial-JS budget is checked by scripts/check-size.mjs.
+    chunkSizeWarningLimit: 1200,
     sourcemap: true,
     rollupOptions: {
       output: {

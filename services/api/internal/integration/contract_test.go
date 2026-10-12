@@ -91,7 +91,7 @@ func TestContract(t *testing.T) {
 	check(http.MethodGet, "/v1/me/places", nil, u)
 	check(http.MethodPost, "/v1/shortcuts/snap", map[string]float64{"lat": 23.00001, "lng": 77.00001}, nil)
 	if fixtureURL() != "" {
-		check(http.MethodPost, "/v1/route", map[string]any{"from": fxA, "to": fxC}, nil)
+		check(http.MethodPost, "/v1/route", map[string]any{"from": fxA, "to": fxC, "depart_at": "2026-10-12T06:30:00Z"}, nil)
 	}
 }
 

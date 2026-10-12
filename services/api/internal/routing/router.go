@@ -79,6 +79,9 @@ type Router struct {
 	Seeded func(id string) bool
 }
 
+// cacheVersion changes whenever route assembly changes, so stale answers are never served.
+const cacheVersion = "v2"
+
 var details = []string{"surface", "road_class", "track_type", "road_access", "max_speed"}
 
 func (r *Router) now() time.Time {
@@ -189,7 +192,7 @@ func (r *Router) Route(ctx context.Context, req Request) (*Response, error) {
 		s := season.Name
 		seasonPtr = &s
 	}
-	key := cache.Key("route", "v1", cache.Round5(req.From.Lat), cache.Round5(req.From.Lng), cache.Round5(req.To.Lat), cache.Round5(req.To.Lng),
+	key := cache.Key("route", cacheVersion, cache.Round5(req.From.Lat), cache.Round5(req.From.Lng), cache.Round5(req.To.Lat), cache.Round5(req.To.Lng),
 		req.Vehicle, req.Mode, plan.Standard, plan.Shortcut, seasonName, fmt.Sprint(daylight), req.Lang)
 	if r.Cache != nil {
 		if b, ok, _ := r.Cache.Get(ctx, key); ok {
@@ -421,25 +424,53 @@ func (r *Router) optionFromPath(id, kind, profile string, p *Path) (*Option, err
 	return o, nil
 }
 
-// dedupe drops shortcut options that are effectively the standard route or each other.
-func dedupe(std Option, opts []Option) []Option {
-	same := func(a, b Option) bool {
-		dd := math.Abs(float64(a.DistanceM - b.DistanceM))
-		dt := math.Abs(float64(a.DurationS - b.DurationS))
-		hasCommunity := func(o Option) bool { return len(o.Legs) > 1 }
-		if hasCommunity(a) != hasCommunity(b) {
-			return false
-		}
-		return dd <= math.Max(30, 0.01*float64(a.DistanceM)) && dt <= 20
+// sameGeometry reports whether two options follow the same roads: similar
+// length and every sampled point of each lies within 30 m of the other.
+// Profiles differ in speed models, so durations are not compared.
+func sameGeometry(a, b Option) bool {
+	if math.Abs(float64(a.DistanceM-b.DistanceM)) > math.Max(30, 0.02*float64(a.DistanceM)) {
+		return false
 	}
+	la, err1 := geo.Decode(a.Polyline)
+	lb, err2 := geo.Decode(b.Polyline)
+	if err1 != nil || err2 != nil || len(la) < 2 || len(lb) < 2 {
+		return false
+	}
+	near := func(x, y []geo.Point) bool {
+		total := geo.Length(x)
+		for i := 0; i <= 20; i++ {
+			p := geo.SliceAlong(x, 0, total*float64(i)/20)
+			pt := x[0]
+			if len(p) > 0 {
+				pt = p[len(p)-1]
+			}
+			if geo.Project(y, pt).DistM > 30 {
+				return false
+			}
+		}
+		return true
+	}
+	return near(la, lb) && near(lb, la)
+}
+
+// dedupe drops shortcut options that repeat the standard route or each other,
+// and options that are both longer and slower than the standard route: those
+// would never be worth taking.
+func dedupe(std Option, opts []Option) []Option {
+	same := sameGeometry
 	var out []Option
 	for _, o := range opts {
-		if same(std, o) {
+		if same(std, o) || (o.DistanceM >= std.DistanceM && o.DurationS >= std.DurationS) {
 			continue
 		}
+		hasCommunity := func(x Option) bool { return len(x.Legs) > 1 }
 		dup := false
-		for _, k := range out {
+		for i, k := range out {
 			if same(k, o) {
+				// Same roads: keep the version that carries rider confirmations.
+				if hasCommunity(o) && !hasCommunity(k) {
+					out[i] = o
+				}
 				dup = true
 				break
 			}
@@ -690,7 +721,7 @@ func (r *Router) addBarrierWarnings(ctx context.Context, opts []Option) {
 			if err != nil || len(line) < 2 {
 				return
 			}
-			bs, err := r.Store.BarriersNear(ctx, line, 8)
+			bs, err := r.Store.BarriersNear(ctx, line, 3) // gates on the route sit on its vertices
 			if err != nil {
 				if r.Log != nil && !errors.Is(err, context.Canceled) {
 					r.Log.Warn("barrier lookup failed", "err", err)

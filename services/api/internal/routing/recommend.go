@@ -25,10 +25,6 @@ func ShouldRecommendShortcut(in RecommendInput) bool {
 	if !savesTime && !savesDist {
 		return false
 	}
-	// A shortcut that is slower is never recommended, even if shorter.
-	if in.ScDurationS > in.StdDurationS {
-		return false
-	}
 	if in.Confidence != nil && *in.Confidence < 0.6 {
 		return false
 	}

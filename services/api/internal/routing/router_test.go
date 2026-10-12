@@ -354,7 +354,7 @@ func TestRecommendationRules(t *testing.T) {
 		{"confidence ok", RecommendInput{StdDistanceM: 7100, StdDurationS: 1020, ScDistanceM: 3400, ScDurationS: 600, Confidence: c(0.6), Daylight: true}, true},
 		{"night track", RecommendInput{StdDistanceM: 7100, StdDurationS: 1020, ScDistanceM: 3400, ScDurationS: 600, TrackM: 400}, false},
 		{"night paved", RecommendInput{StdDistanceM: 7100, StdDurationS: 1020, ScDistanceM: 3400, ScDurationS: 600}, true},
-		{"shorter but slower", RecommendInput{StdDistanceM: 10000, StdDurationS: 900, ScDistanceM: 7000, ScDurationS: 1000, Daylight: true}, false},
+		{"30% shorter but slower still qualifies (SPEC §6.3)", RecommendInput{StdDistanceM: 10000, StdDurationS: 900, ScDistanceM: 7000, ScDurationS: 1000, Daylight: true}, true},
 	}
 	for _, tc := range cases {
 		if got := ShouldRecommendShortcut(tc.in); got != tc.want {

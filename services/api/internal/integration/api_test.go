@@ -216,7 +216,7 @@ func TestAPIPublicEndpoints(t *testing.T) {
 func TestAPIRouteOnFixture(t *testing.T) {
 	fixtureGH(t)
 	a := newAPI(t)
-	rec := a.do(t, http.MethodPost, "/v1/route", map[string]any{"from": fxA, "to": fxC, "mode": "auto"}, nil)
+	rec := a.do(t, http.MethodPost, "/v1/route", map[string]any{"from": fxA, "to": fxC, "mode": "auto", "depart_at": "2026-10-12T06:30:00Z"}, nil)
 	if rec.Code != 200 {
 		t.Fatalf("route: %d %s", rec.Code, rec.Body)
 	}

@@ -88,11 +88,15 @@ func cmdSeedDev(ctx context.Context, o *opts) error {
 		}
 		riders = append(riders, u.ID)
 	}
+	// The founding example ends at Bilawali Lake: anchor the demo track at the
+	// road node nearest the seeded destination so it actually reaches the lake.
+	bilawali := geo.Point{Lat: 22.6631, Lng: 75.8652}
+	_ = db.Pool.QueryRow(ctx, `select ST_Y(geom::geometry), ST_X(geom::geometry) from destinations where region_id = 'indore' and name = 'Bilawali Lake' and verified`).Scan(&bilawali.Lat, &bilawali.Lng)
 	if _, err := db.Pool.Exec(ctx, `delete from shortcuts where title like 'Demo:%'`); err != nil {
 		return err
 	}
 	demos := []demoShortcut{
-		{"Demo: Choithram to Bilawali farm track", geo.Point{Lat: 22.6828, Lng: 75.8551}, geo.Point{Lat: 22.6631, Lng: 75.8652}, "unpaved",
+		{"Demo: Choithram to Bilawali farm track", geo.Point{Lat: 22.6828, Lng: 75.8551}, bilawali, "unpaved",
 			[]string{"floods_in_rain"}, []string{"passable", "passable", "passable", "partly", "passable", "passable"}},
 		{"Demo: Lake-side kaccha lane", geo.Point{Lat: 22.6612, Lng: 75.8603}, geo.Point{Lat: 22.6560, Lng: 75.8664}, "track",
 			[]string{"gate", "no_lights"}, []string{"passable", "passable"}},
@@ -153,7 +157,7 @@ type snapped struct {
 }
 
 func snapDemo(ctx context.Context, db *store.DB, p geo.Point) (snapped, error) {
-	id, at, _, err := db.NearestNode(ctx, p, 400)
+	id, at, _, err := db.NearestNode(ctx, p, 2000)
 	if err != nil {
 		return snapped{}, fmt.Errorf("no road node near %.5f,%.5f", p.Lat, p.Lng)
 	}
