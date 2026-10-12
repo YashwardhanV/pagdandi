@@ -9,6 +9,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"testing"
@@ -112,7 +113,9 @@ func TestFixtureProfiles(t *testing.T) {
 
 type fixtureLookup struct{}
 
-func (fixtureLookup) RegionAt(context.Context, geo.Point) (string, bool, error) { return "indore", true, nil }
+func (fixtureLookup) RegionAt(context.Context, geo.Point) (string, bool, error) {
+	return "indore", true, nil
+}
 
 // TestFixtureRouterWarnsAboutGate runs the full orchestrator against the
 // fixture graph and the barrier index loaded by `datactl fixture`.
@@ -160,3 +163,7 @@ func TestReadyz(t *testing.T) {
 		t.Fatalf("healthz = %d", res.Code)
 	}
 }
+
+func fixtureURL() string { return os.Getenv("PAGDANDI_FIXTURE_GH_URL") }
+
+func jsonEncode(w io.Writer, v any) error { return json.NewEncoder(w).Encode(v) }

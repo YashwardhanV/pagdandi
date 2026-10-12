@@ -1,0 +1,783 @@
+openapi: 3.1.0
+info:
+  title: Pagdandi API
+  version: 0.1.0
+  description: |
+    Hidden-shortcut maps for two-wheelers (SPEC §8). JSON over HTTPS.
+    Errors are always `{"error":{"code","message","details?"}}`.
+    Map data © OpenStreetMap contributors (ODbL).
+servers:
+  - url: /
+tags:
+  - {name: regions}
+  - {name: geocode}
+  - {name: routing}
+  - {name: shortcuts}
+  - {name: community}
+  - {name: auth}
+  - {name: me}
+  - {name: admin}
+  - {name: ops}
+
+paths:
+  /v1/regions:
+    get:
+      tags: [regions]
+      operationId: listRegions
+      responses:
+        "200":
+          description: All regions with coverage boxes and seasons.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [regions]
+                properties:
+                  regions: {type: array, items: {$ref: "#/components/schemas/Region"}}
+  /v1/regions/{id}/destinations:
+    get:
+      tags: [regions]
+      operationId: listDestinations
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      responses:
+        "200":
+          description: Curated destinations.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [region, destinations]
+                properties:
+                  region: {type: string}
+                  destinations: {type: array, items: {$ref: "#/components/schemas/Destination"}}
+        "404": {$ref: "#/components/responses/Error"}
+  /v1/geocode:
+    get:
+      tags: [geocode]
+      operationId: geocode
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string, maxLength: 120}}
+        - {name: lat, in: query, schema: {type: number}}
+        - {name: lng, in: query, schema: {type: number}}
+        - {name: lang, in: query, schema: {$ref: "#/components/schemas/Lang"}}
+      responses:
+        "200":
+          description: Autocomplete results, curated destinations first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results: {type: array, items: {$ref: "#/components/schemas/Place"}}
+        "502": {$ref: "#/components/responses/Error"}
+  /v1/reverse:
+    get:
+      tags: [geocode]
+      operationId: reverse
+      parameters:
+        - {name: lat, in: query, required: true, schema: {type: number}}
+        - {name: lng, in: query, required: true, schema: {type: number}}
+        - {name: lang, in: query, schema: {$ref: "#/components/schemas/Lang"}}
+      responses:
+        "200":
+          description: Nearest named place.
+          content: {application/json: {schema: {$ref: "#/components/schemas/Place"}}}
+        "502": {$ref: "#/components/responses/Error"}
+  /v1/route:
+    post:
+      tags: [routing]
+      operationId: route
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/RouteRequest"}}}
+      responses:
+        "200":
+          description: The usual route plus pagdandi alternatives.
+          content: {application/json: {schema: {$ref: "#/components/schemas/RouteResponse"}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "429": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
+  /v1/route/{id}/gpx:
+    get:
+      tags: [routing]
+      operationId: routeGpx
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+        - {name: option, in: query, schema: {type: string}}
+      responses:
+        "200":
+          description: GPX 1.1 track.
+          content: {application/gpx+xml: {schema: {type: string}}}
+        "404": {$ref: "#/components/responses/Error"}
+  /v1/shortcuts:
+    get:
+      tags: [shortcuts]
+      operationId: listShortcuts
+      parameters:
+        - {name: bbox, in: query, required: true, schema: {type: string}, description: "minLng,minLat,maxLng,maxLat (≤1.5°)"}
+        - {name: zoom, in: query, schema: {type: number}}
+        - {name: adventure, in: query, schema: {type: string, enum: ["0", "1"]}}
+      responses:
+        "200":
+          description: Shortcuts in view, simplified for the zoom.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [shortcuts]
+                properties:
+                  shortcuts: {type: array, items: {$ref: "#/components/schemas/Shortcut"}}
+        "400": {$ref: "#/components/responses/Error"}
+    post:
+      tags: [shortcuts]
+      operationId: createShortcut
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/NewShortcut"}}}
+      responses:
+        "201":
+          description: Created (pending until two riders confirm).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [shortcut, message]
+                properties:
+                  shortcut: {$ref: "#/components/schemas/Shortcut"}
+                  message: {type: string}
+        "401": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "429": {$ref: "#/components/responses/Error"}
+  /v1/shortcuts/snap:
+    post:
+      tags: [shortcuts]
+      operationId: snapPoint
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/LatLng"}}}
+      responses:
+        "200":
+          description: Nearest routable OSM node and whether it is within 30 m.
+          content: {application/json: {schema: {$ref: "#/components/schemas/SnapResult"}}}
+  /v1/shortcuts/{id}:
+    get:
+      tags: [shortcuts]
+      operationId: getShortcut
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      responses:
+        "200":
+          description: Detail, anonymous report summary and confidence history.
+          content: {application/json: {schema: {$ref: "#/components/schemas/ShortcutDetail"}}}
+        "404": {$ref: "#/components/responses/Error"}
+    patch:
+      tags: [shortcuts]
+      operationId: patchShortcut
+      security: [{session: []}]
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title: {type: string, maxLength: 80}
+                flags: {type: array, items: {$ref: "#/components/schemas/Flag"}}
+                vehicles: {type: array, items: {$ref: "#/components/schemas/Vehicle"}}
+                surface: {$ref: "#/components/schemas/Surface"}
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: {type: object, required: [shortcut], properties: {shortcut: {$ref: "#/components/schemas/Shortcut"}}}
+        "403": {$ref: "#/components/responses/Error"}
+  /v1/shortcuts/{id}/reports:
+    post:
+      tags: [shortcuts]
+      operationId: reportShortcut
+      security: [{session: []}]
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/NewReport"}}}
+      responses:
+        "201":
+          description: Recorded; returns the recomputed confidence.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [confidence, band, status]
+                properties:
+                  confidence: {type: number}
+                  band: {$ref: "#/components/schemas/Band"}
+                  status: {$ref: "#/components/schemas/ShortcutStatus"}
+        "409": {$ref: "#/components/responses/Error"}
+  /v1/traces:
+    post:
+      tags: [community]
+      operationId: uploadTrace
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [points]
+              properties:
+                points: {type: array, items: {$ref: "#/components/schemas/TimedPoint"}, minItems: 2, maxItems: 20000}
+      responses:
+        "202":
+          description: Stored after trimming 200 m at each end and 300 m around Home/Work.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stored_pieces, retention_days]
+                properties:
+                  stored_pieces: {type: integer}
+                  retention_days: {type: integer}
+        "403": {$ref: "#/components/responses/Error"}
+  /v1/candidates:
+    get:
+      tags: [community]
+      operationId: listCandidates
+      security: [{session: []}]
+      parameters: [{name: bbox, in: query, required: true, schema: {type: string}}]
+      responses:
+        "200":
+          description: Desire-path prompts not yet answered by this user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [candidates]
+                properties:
+                  candidates: {type: array, items: {$ref: "#/components/schemas/Candidate"}}
+  /v1/candidates/{id}/answer:
+    post:
+      tags: [community]
+      operationId: answerCandidate
+      security: [{session: []}]
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [yes], properties: {yes: {type: boolean}}}
+      responses:
+        "200":
+          description: Recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [candidate, promoted_shortcut_id]
+                properties:
+                  candidate: {$ref: "#/components/schemas/Candidate"}
+                  promoted_shortcut_id: {type: string}
+        "409": {$ref: "#/components/responses/Error"}
+  /v1/auth/magic-link:
+    post:
+      tags: [auth]
+      operationId: requestMagicLink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: {type: string, format: email}
+                redirect: {type: string}
+      responses:
+        "202":
+          description: Email sent (in dev the link is printed in the API log).
+          content: {application/json: {schema: {type: object, properties: {sent: {type: boolean}}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "429": {$ref: "#/components/responses/Error"}
+  /v1/auth/callback:
+    get:
+      tags: [auth]
+      operationId: authCallback
+      parameters:
+        - {name: token, in: query, required: true, schema: {type: string}}
+        - {name: redirect, in: query, schema: {type: string}}
+      responses:
+        "303": {description: Session cookie set; redirect to the web app.}
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      responses:
+        "204": {description: Signed out.}
+  /v1/auth/providers:
+    get:
+      tags: [auth]
+      operationId: authProviders
+      responses:
+        "200":
+          description: Enabled sign-in methods.
+          content:
+            application/json:
+              schema: {type: object, required: [email, google], properties: {email: {type: boolean}, google: {type: boolean}}}
+  /v1/auth/google/start:
+    get:
+      tags: [auth]
+      operationId: googleStart
+      responses:
+        "302": {description: Redirect to Google.}
+        "404": {$ref: "#/components/responses/Error"}
+  /v1/auth/google/callback:
+    get:
+      tags: [auth]
+      operationId: googleCallback
+      responses:
+        "303": {description: Session cookie set.}
+  /v1/me:
+    get:
+      tags: [me]
+      operationId: getMe
+      security: [{session: []}]
+      responses:
+        "200": {description: Profile., content: {application/json: {schema: {$ref: "#/components/schemas/MeResponse"}}}}
+        "401": {$ref: "#/components/responses/Error"}
+    patch:
+      tags: [me]
+      operationId: patchMe
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                display_name: {type: string, maxLength: 40}
+                home_region: {type: string}
+                traces_consent: {type: boolean}
+      responses:
+        "200": {description: Updated., content: {application/json: {schema: {$ref: "#/components/schemas/MeResponse"}}}}
+    delete:
+      tags: [me]
+      operationId: deleteMe
+      security: [{session: []}]
+      responses:
+        "204": {description: Account and personal data deleted.}
+  /v1/me/contributions:
+    get:
+      tags: [me]
+      operationId: myContributions
+      security: [{session: []}]
+      responses:
+        "200":
+          description: Shortcuts created and report count.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [shortcuts, reports, active_shortcuts]
+                properties:
+                  shortcuts: {type: array, items: {$ref: "#/components/schemas/Shortcut"}}
+                  reports: {type: integer}
+                  active_shortcuts: {type: integer}
+  /v1/me/places:
+    get:
+      tags: [me]
+      operationId: myPlaces
+      security: [{session: []}]
+      responses:
+        "200":
+          description: Saved Home/Work.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [places]
+                properties:
+                  places:
+                    type: array
+                    items:
+                      type: object
+                      required: [kind, lat, lng]
+                      properties: {kind: {type: string, enum: [home, work]}, lat: {type: number}, lng: {type: number}}
+  /v1/me/places/{kind}:
+    put:
+      tags: [me]
+      operationId: putPlace
+      security: [{session: []}]
+      parameters: [{name: kind, in: path, required: true, schema: {type: string, enum: [home, work]}}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/LatLng"}}}
+      responses:
+        "204": {description: Saved.}
+    delete:
+      tags: [me]
+      operationId: deletePlace
+      security: [{session: []}]
+      parameters: [{name: kind, in: path, required: true, schema: {type: string, enum: [home, work]}}]
+      responses:
+        "204": {description: Removed.}
+  /v1/admin/queue:
+    get:
+      tags: [admin]
+      operationId: adminQueue
+      security: [{session: []}]
+      responses:
+        "200":
+          description: New shortcuts and private/unsafe reports.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [kind, shortcut, created_at]
+                      properties:
+                        kind: {type: string, enum: [new_shortcut, report]}
+                        shortcut: {$ref: "#/components/schemas/Shortcut"}
+                        reason: {type: string}
+                        note: {type: string}
+                        reports: {type: integer}
+                        created_at: {type: string, format: date-time}
+        "403": {$ref: "#/components/responses/Error"}
+  /v1/admin/shortcuts/{id}/action:
+    post:
+      tags: [admin]
+      operationId: adminAction
+      security: [{session: []}]
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: {type: string, enum: [approve, remove, edit_flags, dismiss]}
+                flags: {type: array, items: {$ref: "#/components/schemas/Flag"}}
+                note: {type: string, maxLength: 500}
+      responses:
+        "200":
+          description: Applied.
+          content:
+            application/json:
+              schema: {type: object, required: [shortcut], properties: {shortcut: {$ref: "#/components/schemas/Shortcut"}}}
+  /healthz:
+    get:
+      tags: [ops]
+      operationId: healthz
+      responses: {"200": {description: Process is up.}}
+  /readyz:
+    get:
+      tags: [ops]
+      operationId: readyz
+      responses:
+        "200": {description: "Postgres, Redis and both GraphHopper instances are reachable."}
+        "503": {description: A dependency is down.}
+  /metrics:
+    get:
+      tags: [ops]
+      operationId: metrics
+      responses: {"200": {description: Prometheus metrics, content: {text/plain: {schema: {type: string}}}}}
+
+components:
+  securitySchemes:
+    session: {type: apiKey, in: cookie, name: pd_session}
+  responses:
+    Error:
+      description: Error envelope.
+      content: {application/json: {schema: {$ref: "#/components/schemas/ErrorEnvelope"}}}
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string, examples: [OUT_OF_COVERAGE, NO_ROUTE, RATE_LIMITED, SNAP_FAILED]}
+            message: {type: string}
+            details: {type: object, additionalProperties: true}
+    Lang: {type: string, enum: [en, hi, sv]}
+    Vehicle: {type: string, enum: [scooter, motorcycle, bicycle, moped]}
+    Mode: {type: string, enum: [auto, standard, shortcut, adventure]}
+    Surface: {type: string, enum: [paved, unpaved, track]}
+    Flag: {type: string, enum: [gate, floods_in_rain, steep, narrow, no_lights, livestock]}
+    Band: {type: string, enum: [high, medium, low]}
+    ShortcutStatus: {type: string, enum: [pending, active, stale, blocked, removed]}
+    LatLng:
+      type: object
+      required: [lat, lng]
+      properties: {lat: {type: number, minimum: -90, maximum: 90}, lng: {type: number, minimum: -180, maximum: 180}}
+    TimedPoint:
+      type: object
+      required: [lat, lng]
+      properties: {lat: {type: number}, lng: {type: number}, t: {type: string, format: date-time}}
+    Season:
+      type: object
+      required: [name, from, to, unpaved_penalty, confidence_half_life_days]
+      properties:
+        name: {type: string}
+        from: {type: string}
+        to: {type: string}
+        unpaved_penalty: {type: number}
+        confidence_half_life_days: {type: number}
+        landslide_risk: {type: boolean}
+        note: {type: string}
+    Region:
+      type: object
+      required: [id, name, country, timezone, center, radius_km, bbox, langs, default_vehicle, vehicles, seasons, active_season, seeded]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        country: {type: string, enum: [IN, SE]}
+        timezone: {type: string}
+        center: {type: array, items: {type: number}, minItems: 2, maxItems: 2, description: "[lat, lng]"}
+        radius_km: {type: number}
+        bbox: {type: array, items: {type: number}, minItems: 4, maxItems: 4}
+        langs: {type: array, items: {type: string}}
+        default_vehicle: {$ref: "#/components/schemas/Vehicle"}
+        vehicles: {type: array, items: {$ref: "#/components/schemas/Vehicle"}}
+        seasons: {type: array, items: {$ref: "#/components/schemas/Season"}}
+        active_season: {type: [string, "null"]}
+        corridors: {type: array, items: {type: object, properties: {to: {type: string}, approx_km: {type: number}}}}
+        notes: {type: string}
+        seeded: {type: boolean}
+    Destination:
+      type: object
+      required: [id, region_id, name, category, lat, lng, verified, nearby_shortcuts]
+      properties:
+        id: {type: string}
+        region_id: {type: string}
+        name: {type: string}
+        name_local: {type: string}
+        category: {type: string}
+        lat: {type: [number, "null"]}
+        lng: {type: [number, "null"]}
+        approx_km: {type: integer}
+        verified: {type: boolean}
+        nearby_shortcuts: {type: integer}
+    Place:
+      type: object
+      required: [id, name, label, lat, lng, source, in_coverage]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        label: {type: string}
+        lat: {type: number}
+        lng: {type: number}
+        source: {type: string, enum: [destination, photon, coordinates]}
+        category: {type: string}
+        region_id: {type: string}
+        in_coverage: {type: boolean}
+    RouteRequest:
+      type: object
+      required: [from, to]
+      additionalProperties: false
+      properties:
+        from: {$ref: "#/components/schemas/LatLng"}
+        to: {$ref: "#/components/schemas/LatLng"}
+        vehicle: {$ref: "#/components/schemas/Vehicle"}
+        mode: {$ref: "#/components/schemas/Mode"}
+        depart_at: {type: string, format: date-time}
+        lang: {$ref: "#/components/schemas/Lang"}
+    SurfaceBreakdown:
+      type: object
+      required: [paved_m, unpaved_m, track_m]
+      properties: {paved_m: {type: integer}, unpaved_m: {type: integer}, track_m: {type: integer}}
+    SurfaceSpan:
+      type: object
+      required: [from_idx, to_idx, kind]
+      properties: {from_idx: {type: integer}, to_idx: {type: integer}, kind: {$ref: "#/components/schemas/Surface"}}
+    Leg:
+      type: object
+      required: [source, from_idx, to_idx]
+      properties:
+        source: {type: string, enum: [osm, community]}
+        shortcut_id: {type: string}
+        title: {type: string}
+        from_idx: {type: integer}
+        to_idx: {type: integer}
+    Warning:
+      type: object
+      required: [type]
+      properties:
+        type: {type: string, enum: [unpaved, gate, steep, seasonal, night, low_confidence, floods, narrow, livestock, no_lights]}
+        at_m: {type: integer}
+        length_m: {type: integer}
+        surface: {$ref: "#/components/schemas/Surface"}
+        season: {type: string}
+        detail: {type: string}
+        lat: {type: number}
+        lng: {type: number}
+    Instruction:
+      type: object
+      required: [text, distance_m, duration_s, sign, interval]
+      properties:
+        text: {type: string}
+        street: {type: string}
+        distance_m: {type: integer}
+        duration_s: {type: integer}
+        sign: {type: integer, description: "GraphHopper sign: -3..3 turns, 4 finish, 5 via, 6 roundabout, 7 keep right, -7 keep left"}
+        interval: {type: array, items: {type: integer}, minItems: 2, maxItems: 2}
+        exit: {type: integer}
+    RouteOption:
+      type: object
+      required: [id, kind, profile, distance_m, duration_s, polyline, legs, surface_breakdown, surface_spans, warnings, instructions]
+      properties:
+        id: {type: string}
+        kind: {type: string, enum: [standard, shortcut]}
+        profile: {type: string}
+        distance_m: {type: integer}
+        duration_s: {type: integer}
+        polyline: {type: string, description: "Encoded polyline, precision 5"}
+        legs: {type: array, items: {$ref: "#/components/schemas/Leg"}}
+        surface_breakdown: {$ref: "#/components/schemas/SurfaceBreakdown"}
+        surface_spans: {type: array, items: {$ref: "#/components/schemas/SurfaceSpan"}}
+        confidence: {type: number}
+        last_confirmed_at: {type: string, format: date-time}
+        confirmations_30d: {type: integer}
+        warnings: {type: array, items: {$ref: "#/components/schemas/Warning"}}
+        savings:
+          type: object
+          required: [distance_m, duration_s]
+          properties: {distance_m: {type: integer}, duration_s: {type: integer}}
+        instructions: {type: array, items: {$ref: "#/components/schemas/Instruction"}}
+    RouteResponse:
+      type: object
+      required: [request_id, region, context, options, recommended, attribution]
+      properties:
+        request_id: {type: string}
+        region: {type: string}
+        context:
+          type: object
+          required: [daylight, season, vehicle, mode, profiles]
+          properties:
+            daylight: {type: boolean}
+            season: {type: [string, "null"]}
+            landslide_risk: {type: boolean}
+            vehicle: {$ref: "#/components/schemas/Vehicle"}
+            mode: {$ref: "#/components/schemas/Mode"}
+            profiles: {type: array, items: {type: string}}
+            sunrise: {type: string, format: date-time}
+            sunset: {type: string, format: date-time}
+        options: {type: array, items: {$ref: "#/components/schemas/RouteOption"}}
+        recommended: {type: string}
+        attribution: {type: string}
+        disclaimer: {type: string}
+        cached: {type: boolean}
+    Shortcut:
+      type: object
+      required: [id, region_id, title, polyline, length_m, oneway, surface, vehicles, flags, status, confidence, confidence_band, last_confirmed_at, created_at, updated_at]
+      properties:
+        id: {type: string}
+        region_id: {type: string}
+        title: {type: [string, "null"]}
+        polyline: {type: string}
+        length_m: {type: integer}
+        start_osm_node: {type: integer}
+        end_osm_node: {type: integer}
+        oneway: {type: boolean}
+        surface: {$ref: "#/components/schemas/Surface"}
+        vehicles: {type: array, items: {$ref: "#/components/schemas/Vehicle"}}
+        flags: {type: array, items: {$ref: "#/components/schemas/Flag"}}
+        status: {$ref: "#/components/schemas/ShortcutStatus"}
+        confidence: {type: number}
+        confidence_band: {$ref: "#/components/schemas/Band"}
+        last_confirmed_at: {type: [string, "null"], format: date-time}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    ShortcutDetail:
+      type: object
+      required: [shortcut, reports, history, confirmations_30d, report_count, mine, osm_edit_url]
+      properties:
+        shortcut: {$ref: "#/components/schemas/Shortcut"}
+        reports:
+          type: array
+          items:
+            type: object
+            required: [day, verdict, count]
+            properties: {day: {type: string}, verdict: {type: string}, reason: {type: string}, count: {type: integer}}
+        history:
+          type: array
+          items: {type: object, required: [day, confidence], properties: {day: {type: string}, confidence: {type: number}}}
+        confirmations_30d: {type: integer}
+        report_count: {type: integer}
+        mine: {type: boolean}
+        osm_edit_url: {type: string}
+    NewShortcut:
+      type: object
+      required: [points, source, surface]
+      additionalProperties: false
+      properties:
+        points: {type: array, items: {$ref: "#/components/schemas/TimedPoint"}, minItems: 2, maxItems: 5000}
+        source: {type: string, enum: [drawn, recorded]}
+        title: {type: string, maxLength: 80}
+        surface: {$ref: "#/components/schemas/Surface"}
+        vehicles: {type: array, items: {$ref: "#/components/schemas/Vehicle"}}
+        flags: {type: array, items: {$ref: "#/components/schemas/Flag"}}
+        oneway: {type: boolean}
+    NewReport:
+      type: object
+      required: [verdict]
+      additionalProperties: false
+      properties:
+        verdict: {type: string, enum: [passable, blocked, partly]}
+        reason: {type: string, enum: [gate_locked, flooded, construction, private, unsafe, missing, other]}
+        note: {type: string, maxLength: 280}
+    SnapResult:
+      type: object
+      required: [ok, lat, lng, distance_m]
+      properties:
+        ok: {type: boolean}
+        node_id: {type: integer}
+        lat: {type: number}
+        lng: {type: number}
+        distance_m: {type: number}
+    Candidate:
+      type: object
+      required: [id, region_id, polyline, distinct_users, first_seen, last_seen, yes_count, no_count, status]
+      properties:
+        id: {type: string}
+        region_id: {type: string}
+        polyline: {type: string}
+        distinct_users: {type: integer}
+        first_seen: {type: string, format: date-time}
+        last_seen: {type: string, format: date-time}
+        yes_count: {type: integer}
+        no_count: {type: integer}
+        status: {type: string, enum: [new, prompted, promoted, rejected]}
+    User:
+      type: object
+      required: [id, display_name, home_region, trust, role, traces_consent_at, created_at]
+      properties:
+        id: {type: string}
+        email: {type: string}
+        display_name: {type: string}
+        home_region: {type: [string, "null"]}
+        trust: {type: number}
+        role: {type: string, enum: [rider, moderator, admin]}
+        traces_consent_at: {type: [string, "null"], format: date-time}
+        created_at: {type: string, format: date-time}
+    MeResponse:
+      type: object
+      required: [user, trusted]
+      properties:
+        user: {$ref: "#/components/schemas/User"}
+        trusted: {type: boolean}

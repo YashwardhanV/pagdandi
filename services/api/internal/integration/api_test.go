@@ -147,8 +147,8 @@ func newAPI(t *testing.T) *api {
 		Cfg: cfg, DB: db, Cache: c, Regions: set,
 		Router: &routing.Router{Regions: set, Lookup: db, Graphs: graphs, Store: db, Cache: c, Log: log,
 			Seeded: func(id string) bool { return id == "indore" }},
-		Geo:    &geocode.Service{DB: db, Lookup: db, Cache: c},
-		Auth:   authSvc, Jobs: &jobs.Jobs{DB: db, Regions: set, Log: log}, Graphs: graphs, Log: log,
+		Geo:  &geocode.Service{DB: db, Lookup: db, Cache: c},
+		Auth: authSvc, Jobs: &jobs.Jobs{DB: db, Regions: set, Log: log}, Graphs: graphs, Log: log,
 		Metrics: handlers.NewMetrics(),
 	}
 	a.h = a.srv.Handler()
