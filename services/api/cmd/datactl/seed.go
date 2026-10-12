@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"pagdandi/api/internal/store"
@@ -38,8 +39,6 @@ func cmdSeed(ctx context.Context, o *opts) error {
 	defer db.Close()
 	gc := newGeocoder(o)
 
-	var report strings.Builder
-	report.WriteString("# Destination geocoding report\n\nUnverified destinations (kept without coordinates; never invented):\n\n")
 	unverified := 0
 	for _, id := range sel.Regions {
 		reg, _ := o.regions.Get(id)
@@ -72,7 +71,6 @@ func cmdSeed(ctx context.Context, o *opts) error {
 				x.Lat, x.Lng = &lat, &lng
 			} else {
 				unverified++
-				fmt.Fprintf(&report, "- %s / %s (approx %.0f km): %s\n", reg.Name, d.Name, d.ApproxKm, res.Reason)
 			}
 			ds = append(ds, x)
 		}
@@ -81,8 +79,23 @@ func cmdSeed(ctx context.Context, o *opts) error {
 		}
 		o.log.Info("seeded", "region", id, "destinations", len(ds))
 	}
-	if unverified == 0 {
-		report.WriteString("- none\n")
+	o.log.Info("seed", "unverified_this_run", unverified)
+	// The report covers every region seeded so far, not just this run.
+	var keys []string
+	for k, r := range resolved {
+		if !r.Verified {
+			keys = append(keys, k)
+		}
 	}
-	return os.WriteFile(filepath.Join(o.build, "geocode-report.md"), []byte(report.String()), 0o644)
+	sort.Strings(keys)
+	var all strings.Builder
+	all.WriteString("# Destination geocoding report\n\nUnverified destinations (kept without coordinates; never invented):\n\n")
+	for _, k := range keys {
+		r := resolved[k]
+		fmt.Fprintf(&all, "- %s (approx %.0f km): %s\n", k, r.ApproxKm, r.Reason)
+	}
+	if len(keys) == 0 {
+		all.WriteString("- none\n")
+	}
+	return os.WriteFile(filepath.Join(o.build, "geocode-report.md"), []byte(all.String()), 0o644)
 }
