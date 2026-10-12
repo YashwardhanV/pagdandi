@@ -108,3 +108,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: failure()
         with: {name: playwright-report, path: apps/web/playwright-report}
+      # Lighthouse budgets (SPEC §14). Accessibility and best practices pass; performance
+      # fails under software WebGL (docs/PROGRESS.md, open issue 2), so this step reports
+      # without blocking until that is resolved.
+      - name: Lighthouse CI
+        working-directory: apps/web
+        continue-on-error: true
+        run: CHROME_PATH="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" npx lhci autorun
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: lighthouse, path: apps/web/.lighthouseci}
