@@ -23,7 +23,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/features/map/style.ts", "src/features/map/palette.ts", "src/**/*.test.{ts,tsx}", "vite.config.ts"],
+    files: ["src/features/map/style.ts", "src/**/*.test.{ts,tsx}", "e2e/**/*.ts", "vite.config.ts"],
     rules: { "no-restricted-syntax": "off" },
   },
 );

@@ -15,7 +15,8 @@ export default function SearchPage() {
   const t = useT();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const field = params.get("field") === "from" ? "from" : "to";
+  const rawField = params.get("field");
+  const field = rawField === "from" || rawField === "home" || rawField === "work" ? rawField : "to";
   const region = useRegion();
   const { lang, userPos, recents, home, work, addRecent } = useApp();
   const [q, setQ] = useState("");
@@ -37,6 +38,13 @@ export default function SearchPage() {
   });
 
   const pick = (e: Endpoint) => {
+    if (field === "home" || field === "work") {
+      // Saved places also define the 300 m privacy cut for ride traces (SPEC §17).
+      useApp.getState().set({ [field]: e });
+      api.putPlace(field, e.lat, e.lng).catch(() => {});
+      navigate("/me", { replace: true });
+      return;
+    }
     addRecent(e);
     const next = new URLSearchParams(params);
     next.delete("field");
@@ -79,13 +87,13 @@ export default function SearchPage() {
       </IconButton>
       <label className="flex h-12 flex-1 items-center gap-2 rounded-md bg-surface-2 px-3">
         <Search size={18} strokeWidth={1.75} className="text-ink-3" aria-hidden />
-        <span className="sr-only">{field === "from" ? t("search.from") : t("search.to")}</span>
+        <span className="sr-only">{field === "from" ? t("search.from") : field === "to" ? t("search.to") : t(`search.set_${field}`)}</span>
         <input
           ref={input}
           autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder={field === "from" ? t("search.from") : t("home.where_to")}
+          placeholder={field === "from" ? t("search.from") : field === "home" ? t("search.set_home") : field === "work" ? t("search.set_work") : t("home.where_to")}
           className="h-full min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-ink-3"
           enterKeyHint="search"
           autoComplete="off"

@@ -12,7 +12,9 @@ test.beforeEach(async ({ page }) => {
     // Skip the explain-before-prompt dialog: permission is already granted in tests.
     try {
       localStorage.setItem("pd.settings", JSON.stringify({ lang: "en", theme: "light", regionId: "indore", recents: [], home: null, work: null, muted: true, vehicle: null }));
-    } catch {}
+    } catch {
+      /* storage blocked: tests still run with defaults */
+    }
   });
 });
 

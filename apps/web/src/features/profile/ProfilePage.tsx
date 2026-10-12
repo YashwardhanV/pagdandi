@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Switch from "@radix-ui/react-switch";
-import { ArrowLeft, BadgeCheck, CloudDownload, LogOut, Route as RouteIcon, ShieldCheck, Trash2 } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Briefcase, CloudDownload, Home, LogOut, Route as RouteIcon, ShieldCheck, Trash2 } from "lucide-react";
 import { api, type Vehicle } from "../../lib/api";
 import { formatDistance } from "../../lib/format";
 import { LANGS, useT } from "../../lib/i18n";
@@ -16,7 +16,7 @@ export default function ProfilePage() {
   const qc = useQueryClient();
   const me = useMe();
   const region = useRegion();
-  const { lang, theme, vehicle, set } = useApp();
+  const { lang, theme, vehicle, home, work, set } = useApp();
   const user = me.data?.user;
 
   const contributions = useQuery({ queryKey: ["contributions"], enabled: !!user, queryFn: api.contributions });
@@ -140,6 +140,8 @@ export default function ProfilePage() {
         )}
       </div>
       <div className="pt-2">
+        <ListRow icon={<Home {...ICON} />} title={t("search.home")} subtitle={home?.name ?? t("search.set_home")} onClick={() => navigate("/search?field=home")} />
+        <ListRow icon={<Briefcase {...ICON} />} title={t("search.work")} subtitle={work?.name ?? t("search.set_work")} onClick={() => navigate("/search?field=work")} />
         <ListRow icon={<CloudDownload {...ICON} />} title={t("profile.offline")} onClick={() => navigate("/offline")} />
         {user && (user.role === "moderator" || user.role === "admin") && (
           <ListRow icon={<ShieldCheck {...ICON} />} title={t("profile.moderation")} onClick={() => navigate("/admin")} />
