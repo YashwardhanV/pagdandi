@@ -113,3 +113,27 @@ for (const theme of ["light", "dark"] as const) {
     });
   });
 }
+
+for (const lang of ["hi", "sv"] as const) {
+  test(`no text overflow in ${lang} (SPEC §11.7)`, async ({ page }) => {
+    await mockAll(page, { signedIn: true });
+    await page.addInitScript((l) => {
+      localStorage.setItem("pd.settings", JSON.stringify({ lang: l, theme: "light", regionId: "indore", recents: [], home: null, work: null, muted: true, vehicle: null }));
+    }, lang);
+    for (const path of [`/route?to=${DEST.lat},${DEST.lng}&toName=Bilawali&from=22.6893,75.8529&fromName=Choithram`, "/me", "/add", "/explore"]) {
+      await page.goto(path);
+      await page.waitForTimeout(800);
+      const overflow = await page.evaluate(() => {
+        const bad: string[] = [];
+        for (const el of document.querySelectorAll<HTMLElement>("button, [role=radio], h1, h2, p, li, label, span")) {
+          if (el.closest(".maplibregl-map, .sr-only") || getComputedStyle(el).overflowX === "auto") continue;
+          const cs = getComputedStyle(el);
+          if (cs.textOverflow === "ellipsis") continue;
+          if (el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0) bad.push(`${el.tagName}: ${el.textContent?.slice(0, 40)}`);
+        }
+        return { bad: bad.slice(0, 5), pageScroll: document.documentElement.scrollWidth > innerWidth + 1 };
+      });
+      expect(overflow, path).toEqual({ bad: [], pageScroll: false });
+    }
+  });
+}
