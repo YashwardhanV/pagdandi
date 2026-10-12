@@ -1,0 +1,55 @@
+# GraphHopper 11.1 config for the Sweden graph: bicycle and moped (SPEC §4.3, §6.1).
+# Rendered by `datactl graph --country se` into data/build/gh/se/config.yml.
+# Moped profiles use car_access; `datactl overrides --country se` tags tracks
+# without explicit motor access as motor_vehicle=no (Off-Road Driving Act).
+graphhopper:
+  datareader.file: "{{DATAREADER_FILE}}"
+  graph.location: "{{GRAPH_LOCATION}}"
+  custom_models.directory: "{{MODELS_DIR}}"
+
+  profiles:
+    - name: bike_standard
+      custom_model_files: [bike_standard.json, military.json]
+    - name: bike_shortcut
+      custom_model_files: [bike_shortcut.json, military.json]
+    - name: moped_standard
+      custom_model_files: [moped_standard.json, military.json]
+    - name: moped_shortcut
+      custom_model_files: [moped_shortcut.json, military.json]
+
+  profiles_ch: []
+  profiles_lm:
+    - profile: bike_standard
+    - profile: bike_shortcut
+    - profile: moped_standard
+    - profile: moped_shortcut
+  prepare.lm.landmarks: 16
+  prepare.lm.threads: 2
+
+  graph.encoded_values: bike_access, bike_average_speed, bike_priority, bike_road_access, car_access, car_average_speed, road_access, road_class, road_class_link, road_environment, roundabout, surface, smoothness, track_type, max_speed, osm_way_id
+  prepare.min_network_size: {{MIN_NETWORK_SIZE}}
+  prepare.subnetworks.threads: 2
+  routing.snap_preventions_default: tunnel, bridge, ferry
+  routing.non_ch.max_waypoint_distance: 1000000
+  routing.max_visited_nodes: 2000000
+  import.osm.ignored_highways: steps,corridor,platform,construction,proposed
+  graph.dataaccess.default_type: RAM_STORE
+
+server:
+  application_connectors:
+    - type: http
+      port: {{PORT}}
+      bind_host: {{BIND}}
+      max_request_header_size: 50k
+  request_log:
+    appenders: []
+  admin_connectors:
+    - type: http
+      port: {{ADMIN_PORT}}
+      bind_host: localhost
+
+logging:
+  appenders:
+    - type: console
+      time_zone: UTC
+      log_format: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

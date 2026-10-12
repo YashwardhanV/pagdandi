@@ -1,0 +1,15 @@
+.env
+data/build/
+data/destinations.resolved.json.tmp
+node_modules/
+dist/
+coverage/
+*.log
+/services/api/bin/
+/apps/web/test-results/
+/apps/web/playwright-report/
+/apps/web/.lighthouseci/
+graph-cache*/
+*.pmtiles
+*.osm.pbf
+.DS_Store
