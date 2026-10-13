@@ -1,4 +1,4 @@
-# Caddy: automatic TLS, static web app, PMTiles with range requests, API reverse proxy (SPEC §3).
+# Caddy: automatic TLS, the static web app, and the API (which also serves map tiles).
 {
 	email {$ACME_EMAIL:}
 }
@@ -10,29 +10,19 @@
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
 		Referrer-Policy strict-origin-when-cross-origin
-		Permissions-Policy "geolocation=(self), camera=(), microphone=()"
+		Permissions-Policy "geolocation=(self), camera=(), microphone=(), screen-wake-lock=(self)"
 		-Server
 	}
 
-	handle /v1/* {
+	@api path /v1/* /tiles/* /healthz /readyz
+	handle @api {
 		reverse_proxy api:8080
-	}
-	handle /healthz {
-		reverse_proxy api:8080
-	}
-
-	# PMTiles: static files, served with HTTP range requests.
-	handle_path /tiles/* {
-		root * /srv/tiles
-		header Cache-Control "public, max-age=86400"
-		header Access-Control-Allow-Origin "*"
-		file_server
 	}
 
 	handle {
 		root * /srv/web
 		header /assets/* Cache-Control "public, max-age=31536000, immutable"
-		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https://tiles.openfreemap.org https://protomaps.github.io; worker-src 'self' blob:; frame-ancestors 'none'"
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https://server.arcgisonline.com https://s3.amazonaws.com; connect-src 'self' https://protomaps.github.io https://s3.amazonaws.com https://server.arcgisonline.com https://demo-bucket.protomaps.com; worker-src 'self' blob:; child-src blob:; frame-ancestors 'none'"
 		try_files {path} /index.html
 		file_server
 	}

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# make deploy: production deploy to one VM over SSH (SPEC §16).
-# Skips cleanly when credentials are missing (SPEC §0.2).
+# make deploy: production deploy to one VM over SSH. Skips cleanly when DEPLOY_* are unset.
 set -euo pipefail
 . "$(dirname "$0")/env.sh"
 if [ -z "${DEPLOY_HOST:-}" ] || [ -z "${DEPLOY_USER:-}" ] || [ -z "${DEPLOY_DOMAIN:-}" ]; then

@@ -13,3 +13,4 @@ graph-cache*/
 *.pmtiles
 *.osm.pbf
 .DS_Store
+*.tsbuildinfo

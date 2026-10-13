@@ -1,31 +1,107 @@
-/* Design tokens (SPEC §11.2). The only place colours are defined for the UI. */
+/*
+ * Pagdandi design tokens.
+ *
+ * Two moods:
+ *   Dusk (default after sunset and by choice): an ink-blue atlas where routes
+ *   glow like light trails.
+ *   Day ("field notes"): warm paper, inked lines, saturated route colours.
+ *
+ * Every colour in the app comes from here (the map style mirrors these in
+ * map/style.ts because MapLibre needs literal values).
+ */
 :root {
-  --bg: #F6F5F2;  --surface: #FFFFFF;  --surface-2: #F0EEEA;
-  --ink: #17191C; --ink-2: #4A4F57;   --ink-3: #6B7079;
-  --line: #E4E1DB;
-  --accent: #C2410C;         /* pagdandi route + primary CTA */
-  --accent-ink: #FFFFFF;
-  --route-standard: #3B4A5A; /* usual route, slate */
-  --ok: #2F7D32; --warn: #B45309; --danger: #B42318;
-  --radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px;
-  --shadow-sheet: 0 -1px 0 var(--line), 0 -8px 24px rgba(0,0,0,.06);
-  --shadow-float: 0 1px 2px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.06);
-  --space: 4px;              /* spacing scale = multiples of 4 */
-  --dur-fast: 120ms; --dur: 200ms; --ease: cubic-bezier(.2,.8,.2,1);
-  --casing: #FFFFFF;
-  --scrim: rgba(23,25,28,.32);
-  color-scheme: light;
+  --font-display: "Fraunces Variable", "Fraunces", Georgia, serif;
+  --font-ui: "Manrope Variable", "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-deva: "Tiro Devanagari Hindi", "Noto Sans Devanagari", serif;
+
+  --r-sm: 10px;
+  --r-md: 16px;
+  --r-lg: 24px;
+  --r-xl: 32px;
+  --r-pill: 999px;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 140ms;
+  --dur: 260ms;
+  --dur-slow: 480ms;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* Trail kinds (dusk) */
+  --k-usual: #c9d3e0;
+  --k-shortest: #4fd1ff;
+  --k-kaccha: #ff8a4c;
+  --k-quiet: #b48cff;
+  --k-scenic: #4ee0a2;
+  --k-fresh: #ffd23f;
+  --k-loop: #ff6fae;
+  --k-open: #3ec7ff;
+  --k-shore: #7cf5e4;
 }
-:root[data-theme="dark"], .theme-dark {
-  --bg: #0E1012; --surface: #16191C; --surface-2: #1D2125;
-  --ink: #ECEDEE; --ink-2: #B4B9BF; --ink-3: #8F959C;
-  --line: #2A2F35;
-  --accent: #FF7A3D; --route-standard: #9AA8B8;
-  --accent-ink: #17191C;
-  --ok: #5DB462; --warn: #E0913A; --danger: #F0705F;
-  --shadow-sheet: 0 -1px 0 var(--line), 0 -8px 24px rgba(0,0,0,.4);
-  --shadow-float: 0 1px 2px rgba(0,0,0,.4), 0 4px 12px rgba(0,0,0,.3);
-  --casing: #0E1012;
-  --scrim: rgba(0,0,0,.5);
+
+:root,
+:root[data-theme="dusk"] {
   color-scheme: dark;
+  --bg: #0b0f15;
+  --bg-2: #10151d;
+  --glass: rgba(16, 21, 29, 0.78);
+  --glass-strong: rgba(14, 18, 25, 0.92);
+  --glass-edge: rgba(255, 255, 255, 0.09);
+  --card: rgba(255, 255, 255, 0.045);
+  --card-hover: rgba(255, 255, 255, 0.075);
+  --card-edge: rgba(255, 255, 255, 0.08);
+  --line: rgba(255, 255, 255, 0.08);
+  --text: #f4efe6;
+  --text-2: #b3ada2;
+  --text-3: #7d786f;
+  --accent: #ffb547;
+  --accent-2: #ff8a4c;
+  --accent-ink: #1b1206;
+  --accent-glow: rgba(255, 181, 71, 0.35);
+  --danger: #ff6b6b;
+  --warn: #ffb547;
+  --ok: #4ee0a2;
+  --shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 6px 18px -6px rgba(0, 0, 0, 0.6);
+  --blur: saturate(160%) blur(18px);
+  --grain-opacity: 0.06;
+}
+
+:root[data-theme="day"] {
+  color-scheme: light;
+  --bg: #f4efe4;
+  --bg-2: #ebe4d6;
+  --glass: rgba(251, 248, 241, 0.86);
+  --glass-strong: rgba(251, 248, 241, 0.96);
+  --glass-edge: rgba(60, 45, 20, 0.12);
+  --card: rgba(60, 45, 20, 0.045);
+  --card-hover: rgba(60, 45, 20, 0.08);
+  --card-edge: rgba(60, 45, 20, 0.1);
+  --line: rgba(60, 45, 20, 0.12);
+  --text: #1f1a14;
+  --text-2: #5c5347;
+  --text-3: #8b8172;
+  --accent: #d9771f;
+  --accent-2: #c2541a;
+  --accent-ink: #fff8ee;
+  --accent-glow: rgba(217, 119, 31, 0.28);
+  --danger: #c43c3c;
+  --warn: #b8670f;
+  --ok: #13976a;
+  --shadow: 0 18px 40px -16px rgba(70, 50, 20, 0.35), 0 2px 6px rgba(70, 50, 20, 0.12);
+  --shadow-sm: 0 6px 16px -8px rgba(70, 50, 20, 0.3);
+  --blur: saturate(140%) blur(14px);
+  --grain-opacity: 0.08;
+
+  --k-usual: #59636f;
+  --k-shortest: #0a8fc2;
+  --k-kaccha: #d4581c;
+  --k-quiet: #7a4fe0;
+  --k-scenic: #13976a;
+  --k-fresh: #c48f00;
+  --k-loop: #d13c84;
+  --k-open: #0a87c4;
+  --k-shore: #11a39a;
 }

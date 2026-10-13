@@ -2,21 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="description" content="Pagdandi shows the usual route next to a shorter one through lanes and tracks riders actually use, with an honest note on surface and how recently riders confirmed it." />
-    <meta name="theme-color" content="#F6F5F2" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0E1012" media="(prefers-color-scheme: dark)" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#0B0F15" />
+    <meta name="description" content="Pagdandi shows the other way: shortcuts, kaccha tracks, quiet lanes, scenic detours and new roads, next to the usual route." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <title>Pagdandi</title>
-    <script>
-      // Apply the saved theme before first paint to avoid a flash.
-      try {
-        var t = localStorage.getItem("pd.theme");
-        if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
-      } catch (e) {}
-    </script>
+    <title>Pagdandi — the other way</title>
   </head>
   <body>
     <div id="root"></div>

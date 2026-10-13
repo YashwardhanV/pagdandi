@@ -1,0 +1,38 @@
+# Pagdandi v2 serves one region: Indore and everything within reach of a day ride.
+# `datactl all` builds the graph, map tiles and feature layers for this circle.
+id: indore
+name: Indore
+name_hi: इंदौर
+center: [22.7196, 75.8577]   # [lat, lng]
+# Wander mode reaches 100 km; 125 km leaves room for the road back.
+radius_km: 125
+timezone: Asia/Kolkata
+# Geofabrik India zone(s) covering the circle. Madhya Pradesh is in central-zone;
+# the circle's south-west rim touches Maharashtra/Gujarat, which only clips edge roads.
+osm_sources:
+  - name: central-zone
+    url: https://download.geofabrik.de/asia/india/central-zone-latest.osm.pbf
+    mirror: http://download.openstreetmap.fr/extracts/asia/india/central_zone-latest.osm.pbf
+# A road counts as "new on the map" if OSM first saw it within this many months.
+fresh_months: 18
+# Places people from Indore actually ride to. Matching OSM features get a boost in
+# Wander, and they always show on the map as featured gems.
+featured:
+  - {name: "Bilawali", kind: lake}
+  - {name: "Sirpur", kind: lake}
+  - {name: "Yeshwant Sagar", kind: lake, aliases: ["Yashwant Sagar"]}
+  - {name: "Pipliyapala", kind: lake}
+  - {name: "Ralamandal", kind: wildlife}
+  - {name: "Tincha", kind: waterfall}
+  - {name: "Patalpani", kind: waterfall}
+  - {name: "Choral", kind: lake}
+  - {name: "Chamunda", kind: temple, aliases: ["Dewas Tekri"]}
+  - {name: "Janapav", kind: hill}
+  - {name: "Mahakaleshwar", kind: temple}
+  - {name: "Omkareshwar", kind: temple}
+  - {name: "Maheshwar", kind: heritage, aliases: ["Ahilya"]}
+  - {name: "Mandu", kind: fort, aliases: ["Mandav", "Jahaz Mahal", "Rani Roopmati"]}
+  - {name: "Kajligarh", kind: fort}
+  - {name: "Gulawat", kind: lake, aliases: ["Lotus Valley"]}
+  - {name: "Hatod", kind: lake}
+  - {name: "Kalakund", kind: heritage}

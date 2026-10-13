@@ -1,111 +1,45 @@
-# Pagdandi services (SPEC §2, §16).
-#   dev:  docker compose -f infra/docker-compose.yml --profile dev up -d     (Postgres, Redis, GraphHopper)
-#   prod: docker compose -f infra/docker-compose.yml --profile prod up -d    (everything behind Caddy)
-# Hosts without virtualization (see docs/DECISIONS.md) run the same services natively via scripts/.
+# Pagdandi v2 services. Three containers, no database:
+#   gh     GraphHopper serving data/build/gh (built by `make data`)
+#   api    Go API (trails, wander, search, tiles)
+#   caddy  TLS, the built web app, reverse proxy to the API (prod profile)
+#
+#   dev:  docker compose -f infra/docker-compose.yml up -d gh        (then `make dev` runs api + web natively)
+#   prod: docker compose -f infra/docker-compose.yml --profile prod up -d --build
 name: pagdandi
 
-x-gh: &gh
-  build: ./graphhopper
-  restart: unless-stopped
-  healthcheck:
-    test: ["CMD", "wget", "-qO-", "http://localhost:8989/health"]
-    interval: 15s
-    timeout: 5s
-    retries: 20
-    start_period: 120s
-
 services:
-  postgres:
-    image: postgis/postgis:17-3.5
-    profiles: [dev, prod]
+  gh:
+    build: ./graphhopper
     restart: unless-stopped
     environment:
-      POSTGRES_USER: pagdandi
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pagdandi}
-      POSTGRES_DB: pagdandi
-    ports: ["127.0.0.1:5432:5432"]
-    volumes: [pgdata:/var/lib/postgresql/data]
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pagdandi"]
-      interval: 5s
-      retries: 30
-
-  redis:
-    image: redis:7.4-alpine
-    profiles: [dev, prod]
-    restart: unless-stopped
-    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
-    ports: ["127.0.0.1:6379:6379"]
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      retries: 30
-
-  # Graphs are built by `make data` into data/build/gh/<country>; the container serves config.yml from there.
-  gh-in:
-    <<: *gh
-    profiles: [dev, prod]
-    environment:
-      GH_CONFIG: /data/build/gh/in/config.yml
+      GH_CONFIG: /data/build/gh/config.yml
       GH_SERVE_XMX: ${GH_SERVE_XMX:-2g}
       GH_BIND: 0.0.0.0
       HOST_DATA_DIR: ${PAGDANDI_HOST_DATA:-/opt/pagdandi/data}
     ports: ["127.0.0.1:8989:8989"]
     volumes: ["../data:/data"]
-
-  gh-se:
-    <<: *gh
-    profiles: [dev, prod]
-    environment:
-      GH_CONFIG: /data/build/gh/se/config.yml
-      GH_SERVE_XMX: ${GH_SERVE_XMX:-2g}
-      GH_BIND: 0.0.0.0
-      GH_PORT: "8990"
-      HOST_DATA_DIR: ${PAGDANDI_HOST_DATA:-/opt/pagdandi/data}
-    ports: ["127.0.0.1:8990:8990"]
-    volumes: ["../data:/data"]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8990/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8989/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
 
   api:
     build:
       context: ../services/api
     profiles: [prod]
     restart: unless-stopped
-    command: ["/app/api"]
     env_file: [../.env]
     environment:
       APP_ENV: prod
-      DATABASE_URL: postgres://pagdandi:${POSTGRES_PASSWORD:-pagdandi}@postgres:5432/pagdandi?sslmode=disable
-      REDIS_URL: redis://redis:6379/0
-      GH_IN_URL: http://gh-in:8989
-      GH_SE_URL: http://gh-se:8990
-      REGIONS_FILE: /app/data/regions.yaml
-      PUBLIC_BASE_URL: https://${DOMAIN:-localhost}
-      WEB_BASE_URL: https://${DOMAIN:-localhost}
+      GH_URL: http://gh:8989
+      DATA_DIR: /data/build
+      REGION_FILE: /data/region.yaml
       CORS_ORIGINS: https://${DOMAIN:-localhost}
-    volumes: ["../data/regions.yaml:/app/data/regions.yaml:ro"]
+    volumes: ["../data:/data:ro"]
     depends_on:
-      postgres: {condition: service_healthy}
-      redis: {condition: service_healthy}
-
-  worker:
-    build:
-      context: ../services/api
-    profiles: [prod]
-    restart: unless-stopped
-    command: ["/app/worker"]
-    env_file: [../.env]
-    environment:
-      APP_ENV: prod
-      DATABASE_URL: postgres://pagdandi:${POSTGRES_PASSWORD:-pagdandi}@postgres:5432/pagdandi?sslmode=disable
-      REDIS_URL: redis://redis:6379/0
-      GH_IN_URL: http://gh-in:8989
-      GH_SE_URL: http://gh-se:8990
-      REGIONS_FILE: /app/data/regions.yaml
-    volumes: ["../data/regions.yaml:/app/data/regions.yaml:ro"]
-    depends_on:
-      postgres: {condition: service_healthy}
+      gh: {condition: service_healthy}
 
   caddy:
     image: caddy:2.9-alpine
@@ -117,25 +51,10 @@ services:
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ../apps/web/dist:/srv/web:ro
-      - ../data/build/tiles:/srv/tiles:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on: [api]
 
-  backup:
-    image: postgis/postgis:17-3.5
-    profiles: [prod]
-    restart: unless-stopped
-    environment:
-      PGPASSWORD: ${POSTGRES_PASSWORD:-pagdandi}
-      BACKUP_S3_URL: ${BACKUP_S3_URL:-}
-    volumes: ["./backup:/backup:ro", "backups:/backups"]
-    entrypoint: ["/bin/sh", "/backup/loop.sh"]
-    depends_on:
-      postgres: {condition: service_healthy}
-
 volumes:
-  pgdata:
   caddy_data:
   caddy_config:
-  backups:

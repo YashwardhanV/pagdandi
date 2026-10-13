@@ -1,162 +1,93 @@
-// Command api serves the Pagdandi HTTP API (SPEC §8).
+// Command api serves Pagdandi: trails (Go), discovery (Wander), search, map
+// tiles and, in production, the web app itself.
 package main
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 	_ "time/tzdata"
 
-	"pagdandi/api/internal/auth"
-	"pagdandi/api/internal/cache"
-	"pagdandi/api/internal/config"
-	"pagdandi/api/internal/geocode"
-	"pagdandi/api/internal/handlers"
-	"pagdandi/api/internal/jobs"
-	"pagdandi/api/internal/regions"
-	"pagdandi/api/internal/routing"
-	"pagdandi/api/internal/store"
+	"pagdandi/api/internal/gh"
+	"pagdandi/api/internal/land"
+	"pagdandi/api/internal/plan"
+	"pagdandi/api/internal/region"
+	"pagdandi/api/internal/search"
+	"pagdandi/api/internal/server"
+	"pagdandi/api/internal/water"
 )
 
 func main() {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	slog.SetDefault(log)
-	if err := run(log); err != nil {
-		log.Error("fatal", "err", err)
-		os.Exit(1)
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	if os.Getenv("APP_ENV") == "prod" {
+		log = slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	}
-}
-
-// seededSet tracks which regions have data in Postgres, refreshed periodically.
-type seededSet struct {
-	mu  sync.RWMutex
-	ids map[string]bool
-}
-
-func (s *seededSet) has(id string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.ids) == 0 || s.ids[id]
-}
-
-func (s *seededSet) refresh(ctx context.Context, db *store.DB) {
-	rows, err := db.Regions(ctx)
+	root := findRoot()
+	dataDir := envOr("DATA_DIR", filepath.Join(root, "data", "build"))
+	reg, err := region.Load(envOr("REGION_FILE", filepath.Join(root, "data", "region.yaml")))
 	if err != nil {
-		return
+		fatal(log, err)
 	}
-	m := map[string]bool{}
-	for _, r := range rows {
-		m[r.ID] = true
-	}
-	s.mu.Lock()
-	s.ids = m
-	s.mu.Unlock()
-}
-
-func run(log *slog.Logger) error {
-	cfg, err := config.Load()
+	ld, err := land.Load(filepath.Join(dataDir, "features"), log)
 	if err != nil {
-		return fmt.Errorf("config: %w", err)
+		fatal(log, err)
 	}
-	set, err := regions.Load(cfg.RegionsFile)
-	if err != nil {
-		return fmt.Errorf("regions: %w", err)
+	ghc := gh.New(envOr("GH_URL", "http://localhost:8989"))
+	planner := &plan.Planner{GH: ghc, Land: ld, Region: reg, Water: water.New(ld.Grid, ld.Waters), Log: log}
+	ua := "Pagdandi/2.0"
+	if c := os.Getenv("GEOCODER_CONTACT_EMAIL"); c != "" {
+		ua += " (" + c + ")"
 	}
+	srv := &server.Server{
+		Region: reg, Land: ld, Planner: planner, GH: ghc, Log: log,
+		Search:   &search.Service{Region: reg, Gems: ld.Gems.Items(), PhotonURL: envOr("PHOTON_URL", "https://photon.komoot.io"), UserAgent: ua, HTTP: &http.Client{Timeout: 6 * time.Second}},
+		TilesDir: filepath.Join(dataDir, "tiles"),
+		WebDir:   os.Getenv("WEB_DIR"),
+		Origins:  strings.Split(envOr("CORS_ORIGINS", "http://localhost:5173"), ","),
+	}
+	addr := envOr("API_ADDR", ":8080")
+	hs := &http.Server{Addr: addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, WriteTimeout: 60 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
-	db, err := store.Open(ctx, cfg.DatabaseURL)
-	if err != nil {
-		return fmt.Errorf("postgres: %w", err)
-	}
-	defer db.Close()
-	if err := db.Migrate(ctx); err != nil {
-		return fmt.Errorf("migrate: %w", err)
-	}
-
-	var c cache.Cache
-	if cfg.RedisURL == "" {
-		log.Warn("REDIS_URL empty: using in-process cache and rate limits")
-		c = cache.NewMemory()
-	} else {
-		rc, err := cache.NewRedis(cfg.RedisURL)
-		if err != nil {
-			return fmt.Errorf("redis: %w", err)
-		}
-		if err := rc.Ping(ctx); err != nil {
-			log.Warn("redis not reachable yet", "err", err)
-		}
-		c = rc
-	}
-
-	metrics := handlers.NewMetrics()
-	graphs := map[string]*routing.GH{"IN": routing.NewGH(cfg.GHInURL), "SE": routing.NewGH(cfg.GHSeURL)}
-	for _, g := range graphs {
-		g.Observe = metrics.ObserveGH
-	}
-	seeded := &seededSet{}
-	seeded.refresh(ctx, db)
-	router := &routing.Router{Regions: set, Lookup: db, Graphs: graphs, Store: db, Cache: c, Log: log, Seeded: seeded.has}
-	geo := &geocode.Service{DB: db, Lookup: db, Cache: c, PhotonURL: cfg.PhotonURL,
-		UserAgent: "Pagdandi/0.1 (" + orDefault(cfg.GeocoderContactEmail, "contact not configured") + ")"}
-	srv := &handlers.Server{
-		Cfg: cfg, DB: db, Cache: c, Regions: set, Router: router, Geo: geo,
-		Auth: auth.New(cfg, db, log), Jobs: &jobs.Jobs{DB: db, Regions: set, Log: log},
-		Graphs: graphs, Log: log, Metrics: metrics,
-	}
-
 	go func() {
-		t := time.NewTicker(time.Minute)
-		defer t.Stop()
-		for {
-			srv.RefreshShortcutGauge(ctx)
-			seeded.refresh(ctx, db)
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-			}
+		log.Info("listening", "addr", addr, "region", reg.ID, "graphhopper", ghc.BaseURL)
+		if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fatal(log, err)
 		}
 	}()
-
-	hs := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           srv.Handler(),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    32 << 10,
-	}
-	errc := make(chan error, 1)
-	go func() {
-		log.Info("api listening", "addr", cfg.Addr, "env", cfg.Env, "regions", len(set.Regions))
-		errc <- hs.ListenAndServe()
-	}()
-	select {
-	case err := <-errc:
-		if !errors.Is(err, http.ErrServerClosed) {
-			return err
-		}
-	case <-ctx.Done():
-		log.Info("shutting down")
-		sctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		return hs.Shutdown(sctx)
-	}
-	return nil
+	<-ctx.Done()
+	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = hs.Shutdown(sctx)
 }
 
-func orDefault(s, d string) string {
-	if s == "" {
-		return d
+func findRoot() string {
+	dir, _ := os.Getwd()
+	for d := dir; ; d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(d, "data", "region.yaml")); err == nil {
+			return d
+		}
+		if filepath.Dir(d) == d {
+			return dir
+		}
 	}
-	return s
+}
+
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+func fatal(log *slog.Logger, err error) {
+	log.Error("fatal", "err", err)
+	os.Exit(1)
 }

@@ -1,9 +1,8 @@
-export type LatLng = { lat: number; lng: number };
+import type { LatLng } from "./api";
 
 const R = 6371008.8;
 const rad = (d: number) => (d * Math.PI) / 180;
 
-/** Great-circle distance in metres. */
 export function haversine(a: LatLng, b: LatLng): number {
   const dLat = rad(b.lat - a.lat);
   const dLng = rad(b.lng - a.lng);
@@ -11,135 +10,101 @@ export function haversine(a: LatLng, b: LatLng): number {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
 }
 
-/** Decode a precision-5 encoded polyline into points. */
-export function decodePolyline(s: string, precision = 5): LatLng[] {
-  const factor = 10 ** precision;
-  const out: LatLng[] = [];
-  let i = 0;
-  let lat = 0;
-  let lng = 0;
-  const next = () => {
-    let result = 0;
-    let shift = 0;
-    let b: number;
-    do {
-      if (i >= s.length) throw new Error("bad polyline");
-      b = s.charCodeAt(i++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    return result & 1 ? ~(result >> 1) : result >> 1;
-  };
-  while (i < s.length) {
-    lat += next();
-    lng += next();
-    out.push({ lat: lat / factor, lng: lng / factor });
+export function destination(p: LatLng, bearingDeg: number, distM: number): LatLng {
+  const d = distM / R;
+  const t = rad(bearingDeg);
+  const f1 = rad(p.lat);
+  const l1 = rad(p.lng);
+  const f2 = Math.asin(Math.sin(f1) * Math.cos(d) + Math.cos(f1) * Math.sin(d) * Math.cos(t));
+  const l2 = l1 + Math.atan2(Math.sin(t) * Math.sin(d) * Math.cos(f1), Math.cos(d) - Math.sin(f1) * Math.sin(f2));
+  return { lat: (f2 * 180) / Math.PI, lng: ((((l2 * 180) / Math.PI + 540) % 360) - 180) };
+}
+
+export function bearing(a: LatLng, b: LatLng): number {
+  const f1 = rad(a.lat);
+  const f2 = rad(b.lat);
+  const dl = rad(b.lng - a.lng);
+  const y = Math.sin(dl) * Math.cos(f2);
+  const x = Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/** Closed [lng, lat] ring approximating a circle. */
+export function circle(c: LatLng, radiusM: number, n = 96): [number, number][] {
+  const ring: [number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    const p = destination(c, (i * 360) / n, radiusM);
+    ring.push([p.lng, p.lat]);
+  }
+  ring.push(ring[0]);
+  return ring;
+}
+
+export function cumulative(line: [number, number][]): number[] {
+  const out = new Array<number>(line.length).fill(0);
+  for (let i = 1; i < line.length; i++) {
+    out[i] = out[i - 1] + haversine({ lng: line[i - 1][0], lat: line[i - 1][1] }, { lng: line[i][0], lat: line[i][1] });
   }
   return out;
 }
 
-/** Encode points as a precision-5 polyline. */
-export function encodePolyline(pts: LatLng[], precision = 5): string {
-  const factor = 10 ** precision;
-  let out = "";
-  let pLat = 0;
-  let pLng = 0;
-  const enc = (v: number) => {
-    let u = v < 0 ? ~(v << 1) : v << 1;
-    let s = "";
-    while (u >= 0x20) {
-      s += String.fromCharCode((0x20 | (u & 0x1f)) + 63);
-      u >>= 5;
+/** Point at distance d along a line (with its segment index and heading). */
+export function pointAlong(line: [number, number][], cum: number[], d: number): { p: LatLng; seg: number; heading: number } {
+  if (line.length === 1) return { p: { lng: line[0][0], lat: line[0][1] }, seg: 0, heading: 0 };
+  let lo = 1;
+  let hi = cum.length - 1;
+  if (d <= 0) lo = 1;
+  else if (d >= cum[hi]) lo = hi;
+  else {
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (cum[mid] < d) lo = mid + 1;
+      else hi = mid;
     }
-    return s + String.fromCharCode(u + 63);
-  };
-  for (const p of pts) {
-    const la = Math.round(p.lat * factor);
-    const ln = Math.round(p.lng * factor);
-    out += enc(la - pLat) + enc(ln - pLng);
-    pLat = la;
-    pLng = ln;
   }
-  return out;
+  const i = lo;
+  const seg = cum[i] - cum[i - 1];
+  const t = seg > 0 ? Math.min(1, Math.max(0, (d - cum[i - 1]) / seg)) : 0;
+  const a = { lng: line[i - 1][0], lat: line[i - 1][1] };
+  const b = { lng: line[i][0], lat: line[i][1] };
+  return { p: { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t }, seg: i - 1, heading: bearing(a, b) };
 }
 
-export function lineLength(pts: LatLng[]): number {
-  let d = 0;
-  for (let i = 1; i < pts.length; i++) d += haversine(pts[i - 1]!, pts[i]!);
-  return d;
-}
-
-export function cumulative(pts: LatLng[]): number[] {
-  const out = new Array<number>(pts.length).fill(0);
-  for (let i = 1; i < pts.length; i++) out[i] = out[i - 1]! + haversine(pts[i - 1]!, pts[i]!);
-  return out;
-}
-
-export type Projection = { point: LatLng; distM: number; alongM: number; segment: number };
-
-/** Closest point on a line to p, with distance along the line. */
-export function project(line: LatLng[], p: LatLng): Projection {
-  let best: Projection = { point: line[0] ?? p, distM: Infinity, alongM: 0, segment: 0 };
-  let cum = 0;
+/** Projects p onto the line: distance from it and distance along it. */
+export function project(line: [number, number][], cum: number[], p: LatLng): { distM: number; alongM: number } {
+  let best = { distM: Infinity, alongM: 0 };
+  const kx = 111320 * Math.cos(rad(p.lat));
+  const ky = 110540;
   for (let i = 0; i + 1 < line.length; i++) {
-    const a = line[i]!;
-    const b = line[i + 1]!;
-    const k = Math.cos(rad(a.lat));
-    const bx = (b.lng - a.lng) * k;
-    const by = b.lat - a.lat;
-    const px = (p.lng - a.lng) * k;
-    const py = p.lat - a.lat;
-    const l2 = bx * bx + by * by;
-    const t = l2 > 0 ? Math.max(0, Math.min(1, (px * bx + py * by) / l2)) : 0;
-    const q = { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t };
-    const d = haversine(q, p);
-    const seg = haversine(a, b);
-    if (d < best.distM) best = { point: q, distM: d, alongM: cum + seg * t, segment: i };
-    cum += seg;
+    const ax = (line[i][0] - p.lng) * kx;
+    const ay = (line[i][1] - p.lat) * ky;
+    const bx = (line[i + 1][0] - p.lng) * kx;
+    const by = (line[i + 1][1] - p.lat) * ky;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 > 0 ? -(ax * dx + ay * dy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const qx = ax + dx * t;
+    const qy = ay + dy * t;
+    const d = Math.hypot(qx, qy);
+    if (d < best.distM) best = { distM: d, alongM: cum[i] + (cum[i + 1] - cum[i]) * t };
   }
   return best;
 }
 
-export function bounds(pts: LatLng[]): [[number, number], [number, number]] {
-  let minLng = Infinity;
-  let minLat = Infinity;
-  let maxLng = -Infinity;
-  let maxLat = -Infinity;
-  for (const p of pts) {
-    minLng = Math.min(minLng, p.lng);
-    minLat = Math.min(minLat, p.lat);
-    maxLng = Math.max(maxLng, p.lng);
-    maxLat = Math.max(maxLat, p.lat);
-  }
-  return [
-    [minLng, minLat],
-    [maxLng, maxLat],
-  ];
+export function sliceLine(line: [number, number][], cum: number[], from: number, to: number): [number, number][] {
+  if (to <= from) return [];
+  const a = pointAlong(line, cum, from);
+  const b = pointAlong(line, cum, to);
+  const out: [number, number][] = [[a.p.lng, a.p.lat]];
+  for (let i = a.seg + 1; i <= b.seg; i++) out.push(line[i]);
+  out.push([b.p.lng, b.p.lat]);
+  return out;
 }
 
-/** Point at a given distance along the line. */
-export function pointAlong(line: LatLng[], distM: number): LatLng {
-  if (line.length === 0) return { lat: 0, lng: 0 };
-  let cum = 0;
-  for (let i = 1; i < line.length; i++) {
-    const seg = haversine(line[i - 1]!, line[i]!);
-    if (cum + seg >= distM) {
-      const t = seg > 0 ? (distM - cum) / seg : 0;
-      const a = line[i - 1]!;
-      const b = line[i]!;
-      return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t };
-    }
-    cum += seg;
-  }
-  return line[line.length - 1]!;
+export function bboxOf(points: [number, number][]): [number, number, number, number] {
+  let b: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const [x, y] of points) b = [Math.min(b[0], x), Math.min(b[1], y), Math.max(b[2], x), Math.max(b[3], y)];
+  return b;
 }
-
-export function parseLatLng(s: string | null): LatLng | null {
-  if (!s) return null;
-  const [a, b] = s.split(",").map(Number);
-  if (a === undefined || b === undefined || !Number.isFinite(a) || !Number.isFinite(b)) return null;
-  if (Math.abs(a) > 90 || Math.abs(b) > 180) return null;
-  return { lat: a, lng: b };
-}
-
-export const fmtLatLng = (p: LatLng) => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`;

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# make dev: api, worker, GraphHopper and web with hot reload.
-# `scripts/dev.sh stop` stops everything it started.
+# make dev: GraphHopper, the API and the web app. `scripts/dev.sh stop` stops them.
 set -uo pipefail
 . "$(dirname "$0")/env.sh"
 RUN="$ROOT/data/build/run"
@@ -25,36 +24,17 @@ start() { # name, command...
   echo "  $name → data/build/logs/$name.log"
 }
 
-if [ "${PAGDANDI_RUNTIME:-}" != "native" ] && docker info >/dev/null 2>&1; then
-  docker compose -f "$ROOT/infra/docker-compose.yml" --profile dev up -d postgres redis
-else
-  "$ROOT/scripts/services-up.sh"
-fi
-
+[ -f "$ROOT/data/build/gh/config.yml" ] || { echo "No graph yet. Run: make data"; exit 1; }
 echo "starting:"
-for c in in se; do
-  if [ -f "$ROOT/data/build/gh/$c/config.yml" ]; then
-    start "gh-$c" "$ROOT/scripts/gh-serve.sh" "$c"
-  else
-    echo "  gh-$c skipped (no graph yet; run make data)"
-  fi
-done
-
-cd "$ROOT/services/api"
-if command -v air >/dev/null; then
-  start api air -c .air.api.toml
-  start worker air -c .air.worker.toml
-else
-  start api go run ./cmd/api
-  start worker go run ./cmd/worker
-fi
+start gh "$ROOT/scripts/gh-serve.sh"
+(cd "$ROOT/services/api" && go build -o bin/ ./cmd/api) || exit 1
+start api "$ROOT/services/api/bin/api"
 cd "$ROOT/apps/web"
 start web npm run dev -- --host
 
 trap 'echo; stop_all; exit 0' INT TERM
 echo
-echo "  web  → http://localhost:5173"
-echo "  api  → http://localhost:8080/v1"
-echo "  gh   → http://localhost:8989 (in), :8990 (se)"
-echo "Ctrl-C stops everything. Sign-in links are printed in data/build/logs/api.log."
+echo "  web → http://localhost:5173   (GraphHopper takes ~20 s to load the graph)"
+echo "  api → http://localhost:8080/v1/meta"
+echo "Ctrl-C stops everything."
 while true; do sleep 3600; done
