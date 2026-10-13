@@ -16,37 +16,45 @@ import (
 	"pagdandi/api/internal/geo"
 )
 
-// Ports per country graph (SPEC §13.2): gh-in :8989, gh-se :8990.
-var ghPorts = map[string][2]int{"in": {8989, 9989}, "se": {8990, 9990}}
+const (
+	ghPort      = 8989
+	ghAdminPort = 8990
+)
 
 func ghJar(o *opts) string {
 	if v := os.Getenv("GH_JAR"); v != "" {
 		return v
 	}
-	return filepath.Join(o.root, "data", "build", "bin", "graphhopper-web-11.1.jar")
+	return filepath.Join(o.build, "bin", "graphhopper-web-11.1.jar")
 }
 
 func slash(p string) string { return filepath.ToSlash(p) }
 
 func renderConfig(o *opts, graphDir string, port, admin int, bind string) (string, error) {
-	tpl, err := os.ReadFile(filepath.Join(o.root, "infra", "graphhopper", "config-"+o.country+".yml"))
+	tpl, err := os.ReadFile(filepath.Join(o.root, "infra", "graphhopper", "config.yml"))
 	if err != nil {
 		return "", err
 	}
+	provider := "skadi"
+	if !o.elevation {
+		provider = "noop"
+	}
 	r := strings.NewReplacer(
-		"{{DATAREADER_FILE}}", slash(graphInputPath(o)),
+		"{{DATAREADER_FILE}}", slash(extractPath(o)),
 		"{{GRAPH_LOCATION}}", slash(graphDir),
 		"{{MODELS_DIR}}", slash(modelsDir(o)),
+		"{{ELEVATION_PROVIDER}}", provider,
+		"{{ELEVATION_CACHE}}", slash(filepath.Join(o.build, "elevation")),
 		"{{PORT}}", fmt.Sprint(port),
 		"{{ADMIN_PORT}}", fmt.Sprint(admin),
 		"{{BIND}}", bind,
-		"{{MIN_NETWORK_SIZE}}", fmt.Sprint(o.minNetwork),
 	)
 	return r.Replace(string(tpl)), nil
 }
 
+// syncModels copies the base custom models next to the generated military.json.
 func syncModels(o *opts) ([]string, error) {
-	src := filepath.Join(o.root, "infra", "graphhopper", "custom_models")
+	src := filepath.Join(o.root, "infra", "graphhopper", "models")
 	if err := os.MkdirAll(modelsDir(o), 0o755); err != nil {
 		return nil, err
 	}
@@ -80,21 +88,21 @@ func syncModels(o *opts) ([]string, error) {
 	return append(files, mil), nil
 }
 
-// cmdGraph imports a new graph into a fresh directory and swaps the pointer
-// only after the import (and, with --verify, a live health check) succeeds:
-// blue/green, so the serving graph is never half-built (SPEC §5).
+// cmdGraph imports into a fresh directory and switches the `current` pointer
+// only after the import and a live sample route succeed, so the serving graph
+// is never half-built.
 func cmdGraph(ctx context.Context, o *opts) error {
-	in := graphInputPath(o)
+	in := extractPath(o)
 	if _, err := os.Stat(in); err != nil {
-		return fmt.Errorf("%s missing: run overlay first", in)
+		return fmt.Errorf("%s missing: run `datactl extract` first", in)
 	}
 	models, err := syncModels(o)
 	if err != nil {
 		return err
 	}
-	base := filepath.Join(o.build, "gh", o.country)
+	base := filepath.Join(o.build, "gh")
 	pointer := filepath.Join(base, "current")
-	tpl := filepath.Join(o.root, "infra", "graphhopper", "config-"+o.country+".yml")
+	tpl := filepath.Join(o.root, "infra", "graphhopper", "config.yml")
 	if cur, err := os.ReadFile(pointer); err == nil && !o.force {
 		if _, err := os.Stat(filepath.Join(base, strings.TrimSpace(string(cur)), "properties")); err == nil && fresh(pointer, append(models, in, tpl)...) {
 			o.log.Info("cached", "graph", strings.TrimSpace(string(cur)))
@@ -103,11 +111,7 @@ func cmdGraph(ctx context.Context, o *opts) error {
 	}
 	name := "graph-" + time.Now().Format("20060102-150405")
 	dir := filepath.Join(base, name)
-	ports := ghPorts[o.country]
-	if o.portOverride > 0 {
-		ports = [2]int{o.portOverride, o.portOverride + 1000}
-	}
-	cfg, err := renderConfig(o, dir, ports[0], ports[1], "localhost")
+	cfg, err := renderConfig(o, dir, ghPort, ghAdminPort, "localhost")
 	if err != nil {
 		return err
 	}
@@ -117,26 +121,23 @@ func cmdGraph(ctx context.Context, o *opts) error {
 	}
 	logDir := filepath.Join(o.build, "logs")
 	_ = os.MkdirAll(logDir, 0o755)
-	logf, err := os.Create(filepath.Join(logDir, "gh-import-"+o.country+".log"))
+	logf, err := os.Create(filepath.Join(logDir, "gh-import.log"))
 	if err != nil {
 		return err
 	}
 	defer logf.Close()
-	o.log.Info("graphhopper import", "country", o.country, "dir", name, "xmx", o.javaXmx, "log", logf.Name())
-	java := envOr("JAVA", "java")
-	c := exec.CommandContext(ctx, java, "-Xmx"+o.javaXmx, "-Xms512m", "-XX:+UseParallelGC", "-jar", ghJar(o), "import", importCfg)
+	o.log.Info("graphhopper import", "dir", name, "xmx", o.javaXmx, "elevation", o.elevation, "log", logf.Name())
+	c := exec.CommandContext(ctx, envOr("JAVA", "java"), "-Xmx"+o.javaXmx, "-Xms512m", "-XX:+UseParallelGC", "-jar", ghJar(o), "import", importCfg)
 	c.Stdout, c.Stderr = io.MultiWriter(logf, os.Stdout), io.MultiWriter(logf, os.Stderr)
 	if err := c.Run(); err != nil {
 		_ = os.RemoveAll(dir)
 		return fmt.Errorf("graphhopper import failed (see %s): %w", logf.Name(), err)
 	}
-	if o.verify {
-		if err := verifyGraph(ctx, o, dir); err != nil {
-			_ = os.RemoveAll(dir)
-			return fmt.Errorf("new graph failed its health check, keeping the old one: %w", err)
-		}
+	if err := verifyGraph(ctx, o, dir); err != nil {
+		_ = os.RemoveAll(dir)
+		return fmt.Errorf("new graph failed its sample routes, keeping the old one: %w", err)
 	}
-	serveCfg, err := renderConfig(o, dir, ports[0], ports[1], envOr("GH_BIND", "localhost"))
+	serveCfg, err := renderConfig(o, dir, ghPort, ghAdminPort, envOr("GH_BIND", "localhost"))
 	if err != nil {
 		return err
 	}
@@ -147,7 +148,7 @@ func cmdGraph(ctx context.Context, o *opts) error {
 		return err
 	}
 	pruneGraphs(o, base, name)
-	o.log.Info("graph ready", "country", o.country, "graph", name, "serve", "scripts/gh-serve.sh "+o.country)
+	o.log.Info("graph ready", "graph", name, "serve", "scripts/gh-serve.sh")
 	return nil
 }
 
@@ -168,7 +169,8 @@ func pruneGraphs(o *opts, base, current string) {
 	}
 }
 
-// verifyGraph serves the new graph on a spare port and routes centre → first destination.
+// verifyGraph serves the new graph on a spare port and routes 4 km out of the
+// centre with every profile.
 func verifyGraph(ctx context.Context, o *opts, dir string) error {
 	port, admin := 18989, 18990
 	cfg, err := renderConfig(o, dir, port, admin, "localhost")
@@ -199,36 +201,27 @@ func verifyGraph(ctx context.Context, o *opts, dir string) error {
 		}
 		time.Sleep(time.Second)
 	}
-	sel, err := loadSelection(o)
-	if err != nil {
-		return err
-	}
-	for _, id := range sel.Regions {
-		reg, _ := o.regions.Get(id)
-		if strings.ToLower(reg.Country) != o.country {
-			continue
-		}
-		c := reg.CenterPoint()
-		to := geo.Destination(c, 45, 3000)
-		profile := "tw_standard"
-		if o.country == "se" {
-			profile = "bike_standard"
-		}
-		body := fmt.Sprintf(`{"points":[[%f,%f],[%f,%f]],"profile":"%s","points_encoded":true}`, c.Lng, c.Lat, to.Lng, to.Lat, profile)
+	from := o.reg.CenterPoint()
+	to := geo.Destination(from, 45, 4000)
+	for _, profile := range []string{"car", "moto", "cycle", "walk"} {
+		body := fmt.Sprintf(`{"points":[[%f,%f],[%f,%f]],"profile":"%s","points_encoded":true,"elevation":true}`, from.Lng, from.Lat, to.Lng, to.Lat, profile)
 		resp, err := http.Post(url+"/route", "application/json", strings.NewReader(body))
 		if err != nil {
 			return err
 		}
 		var out struct {
-			Paths   []json.RawMessage `json:"paths"`
-			Message string            `json:"message"`
+			Paths []struct {
+				Distance float64 `json:"distance"`
+				Ascend   float64 `json:"ascend"`
+			} `json:"paths"`
+			Message string `json:"message"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&out)
 		resp.Body.Close()
 		if resp.StatusCode != 200 || len(out.Paths) == 0 {
-			return fmt.Errorf("sample route in %s failed: %s %s", id, resp.Status, out.Message)
+			return fmt.Errorf("sample %s route failed: %s %s", profile, resp.Status, out.Message)
 		}
-		o.log.Info("verify ok", "region", id)
+		o.log.Info("verify ok", "profile", profile, "km", fmt.Sprintf("%.1f", out.Paths[0].Distance/1000), "ascend_m", out.Paths[0].Ascend)
 	}
 	return nil
 }

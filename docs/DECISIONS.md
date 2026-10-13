@@ -1,29 +1,41 @@
-# Decisions
+# Decisions (v2)
 
-One line per decision: date — decision — reason.
+Made autonomously, as the owner asked. Each with the reason.
 
-- 2026-10-12 — Dev runtime is native Windows (no Docker/WSL2) on the build machine; Docker Compose kept for prod and for hosts with virtualization. — CPU virtualization is disabled in firmware (`HCS_E_HYPERV_NOT_INSTALLED`), so Docker Desktop and WSL2 cannot start.
-- 2026-10-12 — Portable PostgreSQL 18.4 + PostGIS 3.6.2 bundle, Redis 8.10 (msys2 build), osmium-tool via micromamba/conda-forge, go-pmtiles binary, GraphHopper 11.1 fat jar on local Java 25; all installed under `data/build/tools` (gitignored). — Same versions as the container images, no admin rights or Windows services needed.
-- 2026-10-12 — GraphHopper pinned to 11.1 (latest stable on 2026-10-12). — §2 "latest stable".
-- 2026-10-12 — Hand-written parameterised pgx queries in `internal/store` instead of sqlc. — sqlc's parser needs cgo/Docker on Windows and maps PostGIS geometry columns poorly; queries stay parameterised (the safety goal of §8.4).
-- 2026-10-12 — `api/openapi.yaml` is hand-written and is the contract; TS types are generated with `openapi-typescript` and consumed by `openapi-fetch`. Go handlers use hand-written structs checked against the spec by a contract test (kin-openapi). — oapi-codegen server stubs add little over ServeMux patterns; the contract test keeps Go and the spec in sync.
-- 2026-10-12 — Coverage polygon union and cluster detection run in PostGIS (`ST_Union`, `ST_Intersects`) driven from `datactl coverage`. — Robust polygon union; PostGIS is already required.
-- 2026-10-12 — GraphHopper 11.1 has no `lit` encoded value: night profile skips the lighting preference (penalises tracks/dirt only). — §6.1 fallback.
-- 2026-10-12 — Gates are detected from an `osm_barriers` table (loaded by `datactl nodes`) near the route geometry, not from GraphHopper. — GH has no barrier encoded value; GH itself already blocks gates tagged access=private/no.
-- 2026-10-12 — Shortcut endpoint snapping uses an `osm_nodes` table of routable-way nodes loaded by `datactl nodes` (KNN, ≤30 m). — §7.1 needs real OSM node IDs so baked ways connect to the graph.
-- 2026-10-12 — Military areas are written to `custom_models/generated/<country>/military.json` and listed in every profile's `custom_model_files` (GH merges the files). — Keeps the base models identical to §6.2.
-- 2026-10-12 — India overrides also copy `motorcycle=no` into `motor_vehicle=no`; Sweden overrides add `motor_vehicle=no` to `highway=track` ways that lack explicit motor access. — `car_access` (used for both two-wheeler and moped profiles) honours `motor_vehicle` but not `motorcycle`; this encodes §4.3 as data, and each graph has no car profile it could harm.
-- 2026-10-12 — Cache/rate-limit layer has a Redis implementation and an in-memory implementation (used only when `REDIS_URL` is empty, e.g. unit tests). — Tests and degraded dev keep working without Redis.
-- 2026-10-12 — IDs for requests use ULIDs (`oklog/ulid`). — §8.3 example shows ULID-style ids.
-- 2026-10-12 — App-local copy of the conda-forge MSVC runtime (14.51) is placed next to postgres.exe. — The system msvcp140.dll (14.36) is older than the one PostgreSQL 18 was built against and crashes initdb with 0xC0000005.
-- 2026-10-12 — Community-leg costs use parallel GraphHopper /route calls (O→A, B→D) instead of /matrix. — The Matrix API is not part of open-source GraphHopper.
-- 2026-10-12 — Clusters merge regions when one centre lies inside the other's circle (centre distance ≤ radius), not on any circle intersection. — Plain intersection chains 150 km circles from Indore to Delhi and Rishikesh; this rule reproduces the clusters §4.1 names and keeps REGION=indore = Indore+Mhow+Ujjain. REGION=all still unions all coverage per country.
-- 2026-10-12 — Tokens adjusted for WCAG AA (§11.7 requires axe to pass): light --ink-3 #8A9099→#6B7079 (2.9:1→4.8:1 on --bg), dark --ink-3 #7D838A→#8F959C, dark --accent-ink white→#17191C (white on #FF7A3D is 2.6:1), brighter dark ok/warn/danger. Added --casing, --scrim, --shadow-float. — The spec values fail AA for small text.
-- 2026-10-12 — Two-wheeler and moped speed models cap CITY roads at 30 km/h and RESIDENTIAL-density roads at 40 km/h using GraphHopper's urban_density (computed at import). — GH's car speeds put the founding 8.25 km city route at 11.5 min; §1.2 and Google put it at 16–18 min. Without this, no shortcut could ever win in a city.
-- 2026-10-12 — Community-leg speed for scooters/motorcycles: 25 km/h paved, 20 unpaved, 15 track (was 20/15/12). — SPEC §1.2's founding example is 3.4 km of kaccha in 9–11 min (~20 km/h).
-- 2026-10-12 — India map labels use English names; local names appear in UI lists. — MapLibre cannot shape Devanagari, so local-script labels would render broken.
-- 2026-10-12 — Fonts are self-hosted via @fontsource, not Google Fonts. — Works offline in the PWA and keeps the CSP same-origin.
-- 2026-10-12 — Screen primary actions live in a footer pinned to the bottom of the screen, outside the bottom sheet. — At the 52 % snap the CTA was below the fold; §11.1 wants it in the thumb zone.
-- 2026-10-12 — Shortcut options that are both longer and slower than the usual way are not shown; duplicates are detected by geometry, and the duplicate carrying rider confirmations wins. — They would never be worth taking; profiles differ only in speed models, so durations can't identify duplicates.
-- 2026-10-12 — Gate warnings require the barrier to be within 3 m of the route. — Gates on side roads at junctions triggered false warnings at 8 m.
-- 2026-10-12 — E2E tests mock the API and block service workers. — Deterministic, offline-safe CI (§14 "synthetic fixture only"); a registered SW would bypass the mocks.
+1. **Start over, keep the plumbing.** v1's product (community shortcuts, trust scores, moderation, accounts) was
+   the wrong product. Kept: the GraphHopper + osmium + Protomaps pipeline idea and the geo/sun helpers.
+2. **No database, no accounts.** Nothing in v2 needs to be stored server-side. Recents and preferences live in
+   the browser. Running it went from five services to three (GraphHopper, API, Caddy).
+3. **One permissive base profile per mode of travel, characters per request.** Four LM-prepared profiles instead
+   of a profile per character keeps the 8 GB laptop build at ~1 minute and lets new characters ship without a
+   re-import. Request models only lower priorities, so LM stays exact (unit-tested).
+4. **"Less taken" is estimated, not measured.** No traffic data exists for this. Road class busyness × built-up
+   share is honest and explainable ("82 % quiet").
+5. **"Newer" = first added to OSM in the last 18 months** (way version 1). Real-world construction dates aren't
+   knowable; OSM history is. Labelled "new on the map since <month>".
+6. **Scenic from OSM land cover + elevation, not satellite ML.** A 50 m land grid makes scoring O(1) per sample,
+   explainable ("Along Sirpur Lake 1.2 km"), and cheap. Satellite imagery is offered as a map base instead.
+7. **In towns only lakes are scenic.** Indore's Saraswati and Kanh are mapped as rivers but are drains in the
+   city; scoring "along the river" there would be dishonest. GraphHopper's urban_density plus the built-up grid
+   decides "in town".
+8. **Detour budget as one slider.** "How far will you stray?" (0–40 km, auto ≈ 35 % of the usual) covers both
+   "shorter" and "adventurous" without a settings page.
+9. **Wander radius on an exponential scale.** 1–100 km on a linear slider makes 1–10 km unusable; exponential
+   gives the same thumb travel to 1→5, 5→25 and 25→100.
+10. **Jetski routes on the land grid's water cells** (A* with shore-distance costs, string-pulled). GraphHopper
+    can't route water. 50 m cells lose very narrow channels — acceptable for lakes and the Narmada. Each trip
+    stays on one water body; the UI says so plainly when it can't.
+11. **Two-wheelers: motorways blocked by road class.** Indian expressways ban two-wheelers; v1's name-matched
+    override list had no entries near Indore. Cars may use motorways.
+12. **Tracks without car access are allowed for motor vehicles** unless access=private/no. OSM rarely tags
+    motor access on Indian tracks; the label ("track, dirt") carries the honesty.
+13. **Military areas blocked in every profile** (polygons from OSM, simplified to 8 m) — e.g. Mhow cantonment.
+14. **Satellite = Esri World Imagery, terrain = AWS Terrarium tiles.** Free with attribution for this use; switch
+    to a licensed provider (e.g. MapTiler) before any commercial launch.
+15. **Fonts self-hosted** (Fontsource) so the PWA works offline and no third-party font CDN sees users.
+16. **Map labels in English.** MapLibre can't shape Devanagari; the UI shows Hindi names in HTML instead.
+17. **Search = local gems first, then Photon.** Gems answer instantly client-side while Photon (public, ≤ 1 req/s)
+    fills in addresses.
+18. **Name fixes from names.** OSM around Indore often tags waterfalls as cliffs and forts as monuments; a
+    name-based refinement (falls/kund → waterfall, garh/qila → fort …) fixes most. Company names tagged as
+    attractions are dropped.

@@ -1,105 +1,198 @@
-import createClient from "openapi-fetch";
-import type { components, paths } from "./api-types";
+// Typed client for the Pagdandi API (services/api/internal/server).
 
-export type Schemas = components["schemas"];
-export type Region = Schemas["Region"];
-export type Destination = Schemas["Destination"];
-export type Place = Schemas["Place"];
-export type RouteRequest = Schemas["RouteRequest"];
-export type RouteResponse = Schemas["RouteResponse"];
-export type RouteOption = Schemas["RouteOption"];
-export type Warning = Schemas["Warning"];
-export type Instruction = Schemas["Instruction"];
-export type Shortcut = Schemas["Shortcut"];
-export type ShortcutDetail = Schemas["ShortcutDetail"];
-export type NewShortcut = Schemas["NewShortcut"];
-export type Candidate = Schemas["Candidate"];
-export type User = Schemas["User"];
-export type Vehicle = Schemas["Vehicle"];
-export type Mode = Schemas["Mode"];
-export type Surface = Schemas["Surface"];
-export type Flag = Schemas["Flag"];
-export type SnapResult = Schemas["SnapResult"];
+export type LatLng = { lat: number; lng: number };
+export type VehicleId = "bike" | "scooty" | "car" | "cycle" | "walk" | "jetski";
+export type Flavour = "any" | "water" | "hills" | "forest" | "heritage" | "wild" | "fresh";
+export type TrailKind = "usual" | "shortest" | "kaccha" | "quiet" | "scenic" | "fresh" | "loop" | "open" | "shore";
 
-const base = import.meta.env.VITE_API_BASE ?? "";
+export type Vehicle = {
+  id: VehicleId;
+  label: string;
+  label_hi: string;
+  water: boolean;
+  motor: boolean;
+  cruise_kmh: number;
+  max_km: number;
+};
 
-export const client = createClient<paths>({ baseUrl: base, credentials: "include" });
+export type Meta = {
+  region: {
+    id: string;
+    name: string;
+    name_hi: string;
+    center: LatLng;
+    radius_km: number;
+    bbox: [number, number, number, number];
+    ring: [number, number][];
+    timezone: string;
+  };
+  vehicles: Vehicle[];
+  flavours: Flavour[];
+  data: { osm_date: string; built_at: string; fresh_months: number; counts: Record<string, number> };
+  tiles: { url: string; available: boolean };
+};
 
-/** ApiError carries the server's error envelope. */
+export type Span = { kind: string; from_m: number; to_m: number; label?: string };
+export type Note = { kind: string; text: string };
+export type Step = {
+  text: string;
+  street?: string;
+  sign: number;
+  distance_m: number;
+  duration_s: number;
+  at: [number, number];
+  index: number;
+  along_m: number;
+};
+export type Via = { name: string; kind: string; lat: number; lng: number };
+
+export type Trail = {
+  id: string;
+  kind: TrailKind;
+  /** Client-side colour override (loops get one each). */
+  tint?: TrailKind;
+  also?: TrailKind[];
+  name: string;
+  name_hi: string;
+  tagline: string;
+  distance_m: number;
+  duration_s: number;
+  delta_m: number;
+  delta_s: number;
+  climb_m: number;
+  descent_m: number;
+  geometry: [number, number][];
+  elevation: [number, number][] | null;
+  surfaces: Span[];
+  mix: Record<string, number>;
+  quiet: number;
+  scenic: number;
+  twisty: number;
+  backroads_m: number;
+  fresh_m: number;
+  fresh_since?: string;
+  fresh_spans?: Span[];
+  highlights?: Span[];
+  warnings?: Note[];
+  steps?: Step[];
+  via?: Via[];
+  bbox: [number, number, number, number];
+};
+
+export type GoResult = { vehicle: VehicleId; stray_km: number; trails: Trail[]; notes?: Note[]; took_ms: number };
+
+export type Place = {
+  id: string;
+  name: string;
+  name_hi?: string;
+  kind: string;
+  lat: number;
+  lng: number;
+  target: LatLng;
+  distance_km: number;
+  bearing: number;
+  score: number;
+  why: string;
+  tags?: string[];
+};
+
+export type WanderResult = {
+  vehicle: VehicleId;
+  radius_km: number;
+  flavour: Flavour;
+  kind: "places" | "loops";
+  places?: Place[];
+  loops?: Trail[];
+  notes?: Note[];
+  took_ms: number;
+};
+
+export type SearchPlace = {
+  id: string;
+  name: string;
+  label: string;
+  kind: string;
+  lat: number;
+  lng: number;
+  source: "gem" | "osm" | "pin";
+  inside: boolean;
+};
+
+export type Gem = {
+  id: string;
+  name: string;
+  name_hi?: string;
+  kind: string;
+  lat: number;
+  lng: number;
+  access?: LatLng;
+  score: number;
+  featured?: boolean;
+  wiki?: boolean;
+  area_km2?: number;
+  ele_m?: number;
+};
+
 export class ApiError extends Error {
-  readonly status: number;
-  readonly code: string;
-  readonly details: Record<string, unknown> | undefined;
-  constructor(status: number, code: string, message: string, details?: Record<string, unknown>) {
+  constructor(
+    public code: string,
+    message: string,
+    public status: number,
+  ) {
     super(message);
-    this.status = status;
-    this.code = code;
-    this.details = details;
-  }
-  get offline(): boolean {
-    return this.code === "OFFLINE";
   }
 }
 
-type Result<T> = { data?: T; error?: unknown; response: Response };
+const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
 
-/** unwrap turns an openapi-fetch result into data or a thrown ApiError. */
-export async function unwrap<T>(p: Promise<Result<T>>): Promise<T> {
-  let r: Result<T>;
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response;
   try {
-    r = await p;
-  } catch {
-    throw new ApiError(0, "OFFLINE", navigator.onLine ? "Could not reach Pagdandi. Check your connection." : "You are offline.");
+    res = await fetch(BASE + path, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) } });
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw e;
+    throw new ApiError("offline", "Can't reach Pagdandi. Check your connection.", 0);
   }
-  if (r.response.ok) return r.data as T;
-  const env = r.error as { error?: { code?: string; message?: string; details?: Record<string, unknown> } } | undefined;
-  throw new ApiError(
-    r.response.status,
-    env?.error?.code ?? `HTTP_${r.response.status}`,
-    env?.error?.message ?? "Something went wrong. Please try again.",
-    env?.error?.details,
-  );
+  if (!res.ok) {
+    let code = "error";
+    let message = `Something went wrong (${res.status})`;
+    try {
+      const body = await res.json();
+      code = body?.error?.code ?? code;
+      message = body?.error?.message ?? message;
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(code, message, res.status);
+  }
+  return res.json() as Promise<T>;
 }
 
-/** api groups the calls the app makes. */
 export const api = {
-  regions: () => unwrap(client.GET("/v1/regions")),
-  destinations: (id: string) => unwrap(client.GET("/v1/regions/{id}/destinations", { params: { path: { id } } })),
-  geocode: (q: string, near?: { lat: number; lng: number }, lang?: "en" | "hi" | "sv") =>
-    unwrap(client.GET("/v1/geocode", { params: { query: { q, lat: near?.lat, lng: near?.lng, lang } } })),
-  reverse: (lat: number, lng: number) => unwrap(client.GET("/v1/reverse", { params: { query: { lat, lng } } })),
-  route: (body: RouteRequest, signal?: AbortSignal) => unwrap(client.POST("/v1/route", { body, signal })),
-  gpxUrl: (id: string, option: string) => `${base}/v1/route/${encodeURIComponent(id)}/gpx?option=${encodeURIComponent(option)}`,
-  shortcuts: (bbox: [number, number, number, number], zoom: number, adventure = false) =>
-    unwrap(
-      client.GET("/v1/shortcuts", {
-        params: { query: { bbox: bbox.map((v) => v.toFixed(5)).join(","), zoom, adventure: adventure ? "1" : "0" } },
-      }),
-    ),
-  shortcut: (id: string) => unwrap(client.GET("/v1/shortcuts/{id}", { params: { path: { id } } })),
-  createShortcut: (body: NewShortcut) => unwrap(client.POST("/v1/shortcuts", { body })),
-  snap: (lat: number, lng: number) => unwrap(client.POST("/v1/shortcuts/snap", { body: { lat, lng } })),
-  report: (id: string, body: Schemas["NewReport"]) => unwrap(client.POST("/v1/shortcuts/{id}/reports", { params: { path: { id } }, body })),
-  patchShortcut: (id: string, body: { title?: string; flags?: Flag[]; vehicles?: Vehicle[]; surface?: Surface }) =>
-    unwrap(client.PATCH("/v1/shortcuts/{id}", { params: { path: { id } }, body })),
-  candidates: (bbox: [number, number, number, number]) =>
-    unwrap(client.GET("/v1/candidates", { params: { query: { bbox: bbox.map((v) => v.toFixed(5)).join(",") } } })),
-  answerCandidate: (id: string, yes: boolean) =>
-    unwrap(client.POST("/v1/candidates/{id}/answer", { params: { path: { id } }, body: { yes } })),
-  uploadTrace: (points: Schemas["TimedPoint"][]) => unwrap(client.POST("/v1/traces", { body: { points } })),
-  me: () => unwrap(client.GET("/v1/me")),
-  patchMe: (body: { display_name?: string; home_region?: string; traces_consent?: boolean }) =>
-    unwrap(client.PATCH("/v1/me", { body })),
-  deleteMe: () => unwrap(client.DELETE("/v1/me")),
-  contributions: () => unwrap(client.GET("/v1/me/contributions")),
-  places: () => unwrap(client.GET("/v1/me/places")),
-  putPlace: (kind: "home" | "work", lat: number, lng: number) =>
-    unwrap(client.PUT("/v1/me/places/{kind}", { params: { path: { kind } }, body: { lat, lng } })),
-  providers: () => unwrap(client.GET("/v1/auth/providers")),
-  magicLink: (email: string, redirect?: string) => unwrap(client.POST("/v1/auth/magic-link", { body: { email, redirect } })),
-  logout: () => unwrap(client.POST("/v1/auth/logout")),
-  googleStartUrl: (redirect?: string) => `${base}/v1/auth/google/start${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ""}`,
-  adminQueue: () => unwrap(client.GET("/v1/admin/queue")),
-  adminAction: (id: string, body: { action: "approve" | "remove" | "edit_flags" | "dismiss"; flags?: Flag[]; note?: string }) =>
-    unwrap(client.POST("/v1/admin/shortcuts/{id}/action", { params: { path: { id } }, body })),
+  meta: (signal?: AbortSignal) => req<Meta>("/v1/meta", { signal }),
+  search: (q: string, near: LatLng | null, signal?: AbortSignal) => {
+    const p = new URLSearchParams({ q });
+    if (near) {
+      p.set("lat", near.lat.toFixed(5));
+      p.set("lng", near.lng.toFixed(5));
+    }
+    return req<{ places: SearchPlace[] }>(`/v1/search?${p}`, { signal });
+  },
+  reverse: (at: LatLng, signal?: AbortSignal) =>
+    req<SearchPlace>(`/v1/reverse?lat=${at.lat.toFixed(6)}&lng=${at.lng.toFixed(6)}`, { signal }),
+  go: (
+    body: { from: LatLng; to: LatLng; vehicle: VehicleId; stray_km?: number | null },
+    signal?: AbortSignal,
+  ) => {
+    const b: Record<string, unknown> = { from: body.from, to: body.to, vehicle: body.vehicle };
+    if (body.stray_km != null) b.stray_km = body.stray_km;
+    return req<GoResult>("/v1/go", { method: "POST", body: JSON.stringify(b), signal });
+  },
+  wander: (
+    body: { from: LatLng; vehicle: VehicleId; radius_km: number; flavour: Flavour; kind: "places" | "loops"; seed: number },
+    signal?: AbortSignal,
+  ) => req<WanderResult>("/v1/wander", { method: "POST", body: JSON.stringify(body), signal }),
+  gems: (signal?: AbortSignal) => req<{ gems: Gem[] }>("/v1/gems?limit=300", { signal }),
+  fresh: (bbox: [number, number, number, number], signal?: AbortSignal) =>
+    req<GeoJSON.FeatureCollection>(`/v1/fresh?bbox=${bbox.map((v) => v.toFixed(4)).join(",")}`, { signal }),
 };

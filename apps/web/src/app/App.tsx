@@ -1,114 +1,137 @@
-import { Component, lazy, Suspense, useEffect, type ReactNode } from "react";
-import { createBrowserRouter, Outlet, RouterProvider, useRouteError } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WifiOff } from "lucide-react";
-import { useOnline } from "../lib/hooks";
-import { useT } from "../lib/i18n";
-import { useScheme } from "../lib/theme";
-import { useApp } from "../state/store";
-import { ErrorState, Toaster } from "../components/ui";
-import { LocateExplainer } from "../components/LocateExplainer";
-import HomePage from "../features/home/HomePage";
-import SearchPage from "../features/search/SearchPage";
-import RoutePage from "../features/route/RoutePage";
+import { useEffect, useState } from "react";
+import { GoPanel } from "../features/GoPanel";
+import { About, LayerSheet, SearchOverlay, Toast } from "../features/Overlays";
+import { Ride } from "../features/Ride";
+import { WanderPanel } from "../features/WanderPanel";
+import { MapView } from "../map/MapView";
+import { origin, useStore } from "../state/store";
+import { Segmented, Spinner } from "../ui/controls";
+import { Icon, Logo } from "../ui/Icon";
+import { Sheet } from "../ui/Sheet";
 
-const MapView = lazy(() => import("../features/map/MapView"));
-const NavScreen = lazy(() => import("../features/navigation/NavScreen"));
-const AddShortcut = lazy(() => import("../features/shortcuts/AddShortcut"));
-const ShortcutDetail = lazy(() => import("../features/shortcuts/ShortcutDetail"));
-const ExplorePage = lazy(() => import("../features/explore/ExplorePage"));
-const ProfilePage = lazy(() => import("../features/profile/ProfilePage"));
-const SignInPage = lazy(() => import("../features/profile/SignInPage"));
-const OfflinePacks = lazy(() => import("../features/offline/OfflinePacks"));
-const ModerationQueue = lazy(() => import("../features/admin/ModerationQueue"));
+export function App() {
+  const init = useStore((s) => s.init);
+  const mode = useStore((s) => s.mode);
+  const meta = useStore((s) => s.meta);
+  const metaError = useStore((s) => s.metaError);
+  const tickTheme = useStore((s) => s.tickTheme);
+  const [snap, setSnap] = useState<"peek" | "half" | "full">("half");
+  const scrollKey = useStore((s) => `${s.mode}|${s.to?.name ?? ""}|${s.go.status === "loading"}|${s.wander.tab}`);
 
-export const queryClient = new QueryClient({
-  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
-});
-
-class MapBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-  override state = { failed: false };
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-  override render() {
-    // The UI keeps working without a map (e.g. no WebGL); never block the app on it.
-    return this.state.failed ? <div className="absolute inset-0 bg-surface-2" aria-hidden /> : this.props.children;
-  }
-}
-
-function OfflineBanner() {
-  const t = useT();
-  const online = useOnline();
-  if (online) return null;
-  return (
-    <div role="status" className="fixed inset-x-3 top-[max(96px,calc(env(safe-area-inset-top)+88px))] z-30 flex items-center gap-2 rounded-md bg-ink px-3 py-2 text-sm text-bg shadow-float lg:left-[412px] lg:max-w-md" data-testid="offline-banner">
-      <WifiOff size={16} strokeWidth={1.75} aria-hidden />
-      {t("common.offline")}
-    </div>
-  );
-}
-
-function Shell() {
-  useScheme();
-  const lang = useApp((s) => s.lang);
   useEffect(() => {
-    document.documentElement.lang = lang;
-  }, [lang]);
-  return (
-    <div className="fixed inset-0 overflow-hidden bg-bg">
-      <div className="absolute inset-0 lg:left-[400px]">
-        <MapBoundary>
-          <Suspense fallback={<div className="absolute inset-0 bg-bg" aria-hidden />}>
-            <MapView />
-          </Suspense>
-        </MapBoundary>
+    void init();
+    const t = setInterval(tickTheme, 60_000);
+    return () => clearInterval(t);
+  }, [init, tickTheme]);
+
+  // Results deserve room; home and wander start at half.
+  useEffect(() => {
+    return useStore.subscribe((s, p) => {
+      if (s.go.status === "done" && p.go.status !== "done") setSnap("half");
+      if (s.mode !== p.mode && s.mode !== "ride") setSnap("half");
+    });
+  }, []);
+
+  if (!meta) {
+    return (
+      <div className="boot">
+        <Logo size={64} />
+        <h1 className="wordmark big">
+          <span lang="hi">पगडंडी</span>
+        </h1>
+        {metaError ? (
+          <>
+            <p className="muted">{metaError}</p>
+            <button className="btn primary" onClick={() => void init()}>
+              Try again
+            </button>
+          </>
+        ) : (
+          <Spinner label="Loading Pagdandi" />
+        )}
       </div>
-      <OfflineBanner />
-      <Suspense fallback={null}>
-        <Outlet />
-      </Suspense>
-      <LocateExplainer />
-      <Toaster />
+    );
+  }
+
+  return (
+    <div className="app" data-mode={mode}>
+      <MapView />
+      {mode === "ride" ? (
+        <Ride />
+      ) : (
+        <>
+          <TopBar />
+          <MapButtons />
+          <Sheet snap={snap} onSnap={setSnap} header={<ModeSwitch />} scrollKey={scrollKey}>
+            {mode === "go" ? <GoPanel /> : <WanderPanel />}
+          </Sheet>
+        </>
+      )}
+      <SearchOverlay />
+      <LayerSheet />
+      <About />
+      <Toast />
     </div>
   );
 }
 
-function RouteErrorPage() {
-  const err = useRouteError() as Error;
+function ModeSwitch() {
+  const mode = useStore((s) => s.mode);
+  const setMode = useStore((s) => s.setMode);
   return (
-    <div className="flex h-full items-center justify-center bg-bg">
-      <ErrorState message={err?.message ?? "Something went wrong."} onRetry={() => location.assign("/")} retryLabel="Home" />
-    </div>
+    <Segmented
+      size="lg"
+      label="Mode"
+      value={mode === "ride" ? "go" : mode}
+      onChange={setMode}
+      options={[
+        { id: "go", label: "Go", icon: "nav" },
+        { id: "wander", label: "Wander", icon: "sparkle" },
+      ]}
+    />
   );
 }
 
-const router = createBrowserRouter([
-  {
-    element: <Shell />,
-    errorElement: <RouteErrorPage />,
-    children: [
-      { index: true, element: <HomePage /> },
-      { path: "search", element: <SearchPage /> },
-      { path: "route", element: <RoutePage /> },
-      { path: "nav/:routeId/:optionId", element: <NavScreen /> },
-      { path: "s/:id", element: <ShortcutDetail /> },
-      { path: "add", element: <AddShortcut /> },
-      { path: "explore", element: <ExplorePage /> },
-      { path: "explore/:regionId", element: <ExplorePage /> },
-      { path: "me", element: <ProfilePage /> },
-      { path: "signin", element: <SignInPage /> },
-      { path: "offline", element: <OfflinePacks /> },
-      { path: "admin", element: <ModerationQueue /> },
-      { path: "*", element: <HomePage /> },
-    ],
-  },
-]);
-
-export default function App() {
+function TopBar() {
+  const s = useStore();
+  const o = origin(s);
   return (
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
+    <header className="topbar">
+      <button className="brand" onClick={() => s.setAbout(true)} aria-label="About Pagdandi">
+        <Logo size={34} />
+        <span className="wordmark">
+          <span lang="hi">पगडंडी</span>
+        </span>
+      </button>
+      <button className="pill" onClick={() => s.openSearch("to")}>
+        <Icon name="search" size={18} />
+        {s.to ? (
+          <span className="pill-trip">
+            <span className="pill-from">{o?.isMe ? "You" : o?.name}</span>
+            <Icon name="chevron" size={12} />
+            <span className="pill-to">{s.to.name}</span>
+          </span>
+        ) : (
+          <span className="pill-ph">Where to?</span>
+        )}
+      </button>
+    </header>
+  );
+}
+
+function MapButtons() {
+  const s = useStore();
+  return (
+    <div className="mapbtns">
+      <button className="fab" onClick={() => s.setLayers(true)} aria-label="Map layers">
+        <Icon name="layers" size={20} />
+      </button>
+      <button className={`fab ${s.terrain3d ? "on" : ""}`} onClick={s.toggle3d} aria-label="3D terrain" aria-pressed={s.terrain3d}>
+        <Icon name="cube" size={20} />
+      </button>
+      <button className={`fab ${s.locating ? "busy" : ""}`} onClick={() => s.locate()} aria-label="My location">
+        <Icon name="locate" size={20} />
+      </button>
+    </div>
   );
 }

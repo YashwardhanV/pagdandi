@@ -1,15 +1,15 @@
-# API, worker and datactl in one image (cgo is needed for h3-go).
-FROM golang:1.24-bookworm AS build
+# Pagdandi API: one static Go binary. Data (graph, tiles, features) is mounted at /data.
+FROM golang:1.24-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/...
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/datactl ./cmd/datactl
 
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata && rm -rf /var/lib/apt/lists/* \
- && useradd -r -u 10001 pagdandi
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 app
 COPY --from=build /out/ /app/
-USER pagdandi
+USER app
 EXPOSE 8080
-CMD ["/app/api"]
+ENTRYPOINT ["/app/api"]

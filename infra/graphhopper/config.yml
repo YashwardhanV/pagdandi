@@ -1,0 +1,70 @@
+# GraphHopper 11.1 config for Pagdandi v2.
+# `datactl graph` renders this template into data/build/gh/config.yml.
+#
+# Four base profiles, one per way of moving on land. Each base profile is
+# deliberately permissive (it allows everything that vehicle may legally use,
+# tracks included). The API then sends a per-request custom model that only
+# ever *lowers* priorities or speeds to shape a route's character ("the usual",
+# "kaccha", "quiet lanes" …). Lowering keeps the landmark (LM) heuristic valid,
+# so every character is still fast to compute.
+#
+# Bike and scooty share the `moto` profile; scooty gets lower speed caps and
+# avoids rough tracks per request. Jetski routes on water in the API itself.
+graphhopper:
+  datareader.file: "{{DATAREADER_FILE}}"
+  graph.location: "{{GRAPH_LOCATION}}"
+  custom_models.directory: "{{MODELS_DIR}}"
+
+  profiles:
+    - name: car
+      custom_model_files: [pd_car.json, military.json]
+    - name: moto
+      custom_model_files: [pd_moto.json, military.json]
+    - name: cycle
+      custom_model_files: [pd_cycle.json, military.json]
+    - name: walk
+      custom_model_files: [pd_walk.json, military.json]
+
+  profiles_ch: []
+  profiles_lm:
+    - profile: car
+    - profile: moto
+    - profile: cycle
+    - profile: walk
+  prepare.lm.landmarks: 12
+  prepare.lm.threads: 2
+
+  graph.encoded_values: car_access, car_average_speed, bike_access, bike_priority, bike_average_speed, bike_road_access, foot_access, foot_priority, foot_average_speed, foot_road_access, road_access, road_class, road_class_link, road_environment, roundabout, surface, smoothness, track_type, max_speed, osm_way_id, urban_density, average_slope, max_slope
+  graph.urban_density.threads: 2
+
+  # Elevation (free AWS terrain tiles, cached after the first import).
+  graph.elevation.provider: {{ELEVATION_PROVIDER}}
+  graph.elevation.cache_dir: "{{ELEVATION_CACHE}}"
+  graph.elevation.dataaccess: MMAP
+
+  prepare.min_network_size: 200
+  prepare.subnetworks.threads: 2
+  routing.snap_preventions_default: tunnel, bridge, ferry
+  routing.non_ch.max_waypoint_distance: 1000000
+  routing.max_visited_nodes: 3000000
+  import.osm.ignored_highways: construction,proposed,platform,corridor,elevator,raceway,bus_guideway
+  graph.dataaccess.default_type: RAM_STORE
+
+server:
+  application_connectors:
+    - type: http
+      port: {{PORT}}
+      bind_host: {{BIND}}
+      max_request_header_size: 50k
+  request_log:
+    appenders: []
+  admin_connectors:
+    - type: http
+      port: {{ADMIN_PORT}}
+      bind_host: localhost
+
+logging:
+  appenders:
+    - type: console
+      time_zone: UTC
+      log_format: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

@@ -1,1 +1,1 @@
-Source of truth: docs/SPEC.md. Follow §0 (full autonomy, never ask the owner anything). Track progress in docs/PROGRESS.md.
+Source of truth: docs/SPEC.md (Pagdandi v2). Work with full autonomy: make product, design and engineering decisions yourself and don't ask the owner design questions; they review results, not plans. Keep the UI beautiful and the labels honest. Track status in docs/PROGRESS.md and record non-obvious choices in docs/DECISIONS.md.

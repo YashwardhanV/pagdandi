@@ -1,79 +1,105 @@
 import { describe, expect, it } from "vitest";
-import { formatAgo, formatDistance, formatDuration, minutes } from "./format";
-import { decodePolyline, encodePolyline, haversine, parseLatLng, pointAlong, project } from "./geo";
-import { translate } from "./i18n";
-import { isDaylight, sunTimes } from "./time";
-import en from "../i18n/en.json";
-import hi from "../i18n/hi.json";
-import sv from "../i18n/sv.json";
+import type { Trail } from "./api";
+import { deltaDist, deltaTime, duration, km, monthLabel } from "./format";
+import { circle, cumulative, haversine, pointAlong, project } from "./geo";
+import { aheadNote, prepare, stateAt } from "./nav";
+import { isDark, sunTimes } from "./sun";
 
-describe("format", () => {
-  it("always shows units", () => {
-    expect(formatDistance(850)).toBe("850 m");
-    expect(formatDistance(42)).toBe("40 m");
-    expect(formatDistance(7100)).toBe("7.1 km");
-    expect(formatDistance(24300)).toBe("24 km");
-    expect(formatDuration(1020)).toBe("17 min");
-    expect(formatDuration(20)).toBe("1 min");
-    expect(formatDuration(3900)).toBe("1 h 05 min");
-    expect(minutes(420)).toBe(7);
-    expect(formatDistance(1200, "hi")).toBe("1.2 किमी");
+const INDORE = { lat: 22.7196, lng: 75.8577 };
+
+describe("sun", () => {
+  it("puts Indore's October sunset around 18:00 IST", () => {
+    const t = sunTimes(new Date("2026-10-13T07:00:00Z"), INDORE.lat, INDORE.lng)!;
+    const ist = (d: Date) => (d.getUTCHours() + 5.5 + d.getUTCMinutes() / 60) % 24;
+    expect(ist(t.rise)).toBeGreaterThan(6);
+    expect(ist(t.rise)).toBeLessThan(6.7);
+    expect(ist(t.set)).toBeGreaterThan(17.7);
+    expect(ist(t.set)).toBeLessThan(18.3);
   });
-  it("formats relative time", () => {
-    const now = Date.parse("2026-10-12T12:00:00Z");
-    expect(formatAgo("2026-10-09T12:00:00Z", "en", now)).toBe("3 days ago");
-    expect(formatAgo(null)).toBe("");
+  it("is light at noon and dark at 21:00 IST", () => {
+    expect(isDark(new Date("2026-10-13T06:30:00Z"), INDORE.lat, INDORE.lng)).toBe(false);
+    expect(isDark(new Date("2026-10-13T15:30:00Z"), INDORE.lat, INDORE.lng)).toBe(true);
   });
 });
 
 describe("geo", () => {
-  it("round-trips polylines", () => {
-    const pts = [{ lat: 38.5, lng: -120.2 }, { lat: 40.7, lng: -120.95 }, { lat: 43.252, lng: -126.453 }];
-    const enc = encodePolyline(pts);
-    expect(enc).toBe("_p~iF~ps|U_ulLnnqC_mqNvxq`@");
-    decodePolyline(enc).forEach((p, i) => {
-      expect(p.lat).toBeCloseTo(pts[i]!.lat, 5);
-      expect(p.lng).toBeCloseTo(pts[i]!.lng, 5);
-    });
+  it("measures and walks a line", () => {
+    const line: [number, number][] = [
+      [75.85, 22.71],
+      [75.86, 22.71],
+      [75.86, 22.72],
+    ];
+    const cum = cumulative(line);
+    expect(cum[2]).toBeGreaterThan(2000);
+    const mid = pointAlong(line, cum, cum[1] / 2);
+    expect(mid.p.lng).toBeCloseTo(75.855, 3);
+    expect(Math.round(mid.heading)).toBe(90);
+    const pr = project(line, cum, { lat: 22.7105, lng: 75.858 });
+    expect(pr.distM).toBeLessThan(80);
+    expect(pr.alongM).toBeGreaterThan(700);
   });
-  it("projects points and walks along lines", () => {
-    const line = [{ lat: 0, lng: 0 }, { lat: 0, lng: 0.01 }];
-    const p = project(line, { lat: 0.001, lng: 0.005 });
-    expect(p.distM).toBeCloseTo(111.2, 0);
-    expect(p.alongM).toBeCloseTo(556, -1);
-    expect(haversine(line[0]!, pointAlong(line, 500))).toBeCloseTo(500, 0);
-  });
-  it("parses lat,lng safely", () => {
-    expect(parseLatLng("22.7,75.8")).toEqual({ lat: 22.7, lng: 75.8 });
-    expect(parseLatLng("abc")).toBeNull();
-    expect(parseLatLng("95,10")).toBeNull();
-  });
-});
-
-describe("i18n", () => {
-  it("fills placeholders and falls back to English", () => {
-    expect(translate("en", "route.saves_min", { n: 9 })).toBe("saves 9 min");
-    expect(translate("hi", "route.saves_min", { n: 9 })).toBe("9 मिनट बचत");
-    expect(translate("sv", "surface.unpaved.SE")).toBe("Grusväg");
-  });
-  it("has every English key in Hindi and Swedish", () => {
-    const keys = Object.keys(en);
-    expect(keys.filter((k) => !(k in hi))).toEqual([]);
-    expect(keys.filter((k) => !(k in sv))).toEqual([]);
-  });
-  it("keeps chip labels short enough not to overflow (SPEC §11.7)", () => {
-    const chipKeys = ["warn.gate", "warn.night", "warn.steep", "warn.low_confidence", "warn.floods", "surface.unpaved.IN", "surface.unpaved.SE", "route.recommended", "mode.adventure"];
-    for (const d of [en, hi, sv] as Record<string, string>[]) for (const k of chipKeys) expect(d[k]!.length).toBeLessThanOrEqual(24);
+  it("draws a closed circle of the right size", () => {
+    const ring = circle(INDORE, 5000, 32);
+    expect(ring[0]).toEqual(ring[ring.length - 1]);
+    expect(haversine(INDORE, { lng: ring[8][0], lat: ring[8][1] })).toBeCloseTo(5000, -1);
   });
 });
 
-describe("time", () => {
-  it("finds sunrise/sunset and daylight in Indore", () => {
-    const t = sunTimes(new Date("2026-06-21T06:00:00Z"), 22.7196, 75.8577)!;
-    // 05:41 and 19:13 IST
-    expect(Math.abs(t.sunrise.getTime() - Date.parse("2026-06-21T00:11:00Z"))).toBeLessThan(5 * 60000);
-    expect(Math.abs(t.sunset.getTime() - Date.parse("2026-06-21T13:43:00Z"))).toBeLessThan(5 * 60000);
-    expect(isDaylight(new Date("2026-10-12T07:30:00Z"), 22.72, 75.86)).toBe(true);
-    expect(isDaylight(new Date("2026-10-12T17:30:00Z"), 22.72, 75.86)).toBe(false);
+describe("format", () => {
+  it("reads like a person", () => {
+    expect(km(420)).toBe("420 m");
+    expect(km(12345)).toBe("12 km");
+    expect(km(3400)).toBe("3.4 km");
+    expect(duration(3720)).toBe("1 h 2 min");
+    expect(deltaTime(-180)).toBe("−3 min");
+    expect(deltaDist(30)).toBe("same distance");
+    expect(monthLabel("2026-03")).toBe("Mar 2026");
+  });
+});
+
+function trail(): Trail {
+  const geometry: [number, number][] = Array.from({ length: 11 }, (_, i) => [75.85 + i * 0.001, 22.71]);
+  const total = cumulative(geometry)[10];
+  return {
+    id: "t",
+    kind: "kaccha",
+    name: "Kaccha",
+    name_hi: "",
+    tagline: "",
+    distance_m: total,
+    duration_s: 600,
+    delta_m: 0,
+    delta_s: 0,
+    climb_m: 0,
+    descent_m: 0,
+    geometry,
+    elevation: null,
+    surfaces: [
+      { kind: "paved", from_m: 0, to_m: total / 2 },
+      { kind: "dirt", from_m: total / 2, to_m: total },
+    ],
+    mix: { paved: 0.5, dirt: 0.5 },
+    quiet: 0.5,
+    scenic: 0.5,
+    twisty: 0,
+    backroads_m: 0,
+    fresh_m: 0,
+    steps: [
+      { text: "Turn left onto the track", sign: -2, distance_m: 0, duration_s: 0, at: geometry[5], index: 5, along_m: total / 2 },
+      { text: "Arrive", sign: 4, distance_m: 0, duration_s: 0, at: geometry[10], index: 10, along_m: total },
+    ],
+    bbox: [75.85, 22.71, 75.86, 22.71],
+  };
+}
+
+describe("nav", () => {
+  it("knows the next turn, what's ahead and when you've arrived", () => {
+    const p = prepare(trail());
+    const s = stateAt(p, 100);
+    expect(s.step?.text).toContain("Turn left");
+    expect(s.toStepM).toBeGreaterThan(300);
+    expect(aheadNote(p.trail, 100)).toMatch(/^Kaccha starts in/);
+    expect(stateAt(p, p.total - 10).arrived).toBe(true);
+    expect(Math.round(stateAt(p, p.total / 2).remainingS)).toBe(300);
   });
 });
